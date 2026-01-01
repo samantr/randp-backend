@@ -7,12 +7,13 @@ import org.springframework.data.repository.query.Param;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 public interface TransactionRepository extends JpaRepository<Transaction, Long> {
 
     boolean existsByCodeIgnoreCase(String code);
     boolean existsByCodeIgnoreCaseAndIdNot(String code, Long id);
-
+    Optional<Transaction> findByCode(String code);
     @Query("""
         select t from Transaction t
         where t.project.id = :projectId
@@ -52,3 +53,5 @@ public interface TransactionRepository extends JpaRepository<Transaction, Long> 
                          @Param("fromId") Long fromId,
                          @Param("toId") Long toId);
 }
+
+

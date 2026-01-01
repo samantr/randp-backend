@@ -1,6 +1,7 @@
 package com.app.model;
 
 import jakarta.persistence.*;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "debts_documents")
@@ -19,6 +20,15 @@ public class DebtDocument {
     @Column(name = "doc", nullable = false)
     private byte[] doc;
 
+    @Column(name = "file_name", length = 255)
+    private String fileName;
+
+    @Column(name = "content_type", length = 100)
+    private String contentType;
+
+    @Column(name = "created_at")
+    private LocalDateTime createdAt;
+
     @Column(name = "dsc", length = 4000)
     private String dsc;
 
@@ -32,6 +42,20 @@ public class DebtDocument {
     public byte[] getDoc() { return doc; }
     public void setDoc(byte[] doc) { this.doc = doc; }
 
+    public String getFileName() { return fileName; }
+    public void setFileName(String fileName) { this.fileName = fileName; }
+
+    public String getContentType() { return contentType; }
+    public void setContentType(String contentType) { this.contentType = contentType; }
+
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+
     public String getDsc() { return dsc; }
     public void setDsc(String dsc) { this.dsc = dsc; }
+
+    @PrePersist
+    void prePersist() {
+        if (createdAt == null) createdAt = LocalDateTime.now();
+    }
 }

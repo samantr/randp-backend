@@ -35,7 +35,7 @@ public class DocumentService {
     // ------------------- TRANSACTION DOCS -------------------
 
     @Transactional
-    public Long uploadTransactionDoc(Long transactionId, byte[] bytes, String dsc) {
+    public Long uploadTransactionDoc(Long transactionId, byte[] bytes, String fileName, String contentType, String dsc) {
         if (transactionId == null) throw new IllegalArgumentException("transactionId is required.");
         if (bytes == null || bytes.length == 0) throw new IllegalArgumentException("file is empty.");
 
@@ -45,6 +45,8 @@ public class DocumentService {
         TransactionDocument doc = new TransactionDocument();
         doc.setTransaction(tx);
         doc.setDoc(bytes);
+        doc.setFileName(trimToNull(fileName));
+        doc.setContentType(trimToNull(contentType));
         doc.setDsc(trimToNull(dsc));
 
         return transactionDocumentRepository.save(doc).getId();
@@ -53,11 +55,14 @@ public class DocumentService {
     @Transactional(readOnly = true)
     public List<DocumentMetaResponse> listTransactionDocs(Long transactionId) {
         if (transactionId == null) throw new IllegalArgumentException("transactionId is required.");
-        // metadata query (no blob)
+
         return jdbcTemplate.query("""
                 select id,
                        transaction_id as owner_id,
                        datalength(doc) as size_bytes,
+                       file_name,
+                       content_type,
+                       convert(varchar(19), created_at, 120) as created_at,
                        dsc
                 from transaction_documents
                 where transaction_id = ?
@@ -66,6 +71,9 @@ public class DocumentService {
                 rs.getLong("id"),
                 rs.getLong("owner_id"),
                 rs.getLong("size_bytes"),
+                rs.getString("file_name"),
+                rs.getString("content_type"),
+                rs.getString("created_at"),
                 rs.getString("dsc")
         ), transactionId);
     }
@@ -88,7 +96,7 @@ public class DocumentService {
     // ------------------- DEBT DOCS -------------------
 
     @Transactional
-    public Long uploadDebtDoc(Long debtId, byte[] bytes, String dsc) {
+    public Long uploadDebtDoc(Long debtId, byte[] bytes, String fileName, String contentType, String dsc) {
         if (debtId == null) throw new IllegalArgumentException("debtId is required.");
         if (bytes == null || bytes.length == 0) throw new IllegalArgumentException("file is empty.");
 
@@ -98,6 +106,8 @@ public class DocumentService {
         DebtDocument doc = new DebtDocument();
         doc.setDebtHeader(debt);
         doc.setDoc(bytes);
+        doc.setFileName(trimToNull(fileName));
+        doc.setContentType(trimToNull(contentType));
         doc.setDsc(trimToNull(dsc));
 
         return debtDocumentRepository.save(doc).getId();
@@ -111,6 +121,9 @@ public class DocumentService {
                 select id,
                        debt_header_id as owner_id,
                        datalength(doc) as size_bytes,
+                       file_name,
+                       content_type,
+                       convert(varchar(19), created_at, 120) as created_at,
                        dsc
                 from debts_documents
                 where debt_header_id = ?
@@ -119,6 +132,9 @@ public class DocumentService {
                 rs.getLong("id"),
                 rs.getLong("owner_id"),
                 rs.getLong("size_bytes"),
+                rs.getString("file_name"),
+                rs.getString("content_type"),
+                rs.getString("created_at"),
                 rs.getString("dsc")
         ), debtId);
     }

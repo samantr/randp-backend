@@ -1,7 +1,9 @@
 package com.app.model;
 
 import jakarta.persistence.*;
+
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "debts_header")
@@ -21,14 +23,15 @@ public class DebtHeader {
     @JoinColumn(name = "project_id", nullable = false)
     private Project project;
 
-    @Column(name = "date_due", nullable = false)
+    @Column(name = "date_due")
     private LocalDate dateDue;
-
-    @Column(name = "date_registered", nullable = false)
-    private LocalDate dateRegistered;
 
     @Column(name = "dsc", length = 4000)
     private String dsc;
+
+    // CHANGED: date -> datetime
+    @Column(name = "date_registered", nullable = false)
+    private LocalDateTime dateRegistered;
 
     public DebtHeader() {}
 
@@ -43,9 +46,9 @@ public class DebtHeader {
     public LocalDate getDateDue() { return dateDue; }
     public void setDateDue(LocalDate dateDue) { this.dateDue = dateDue; }
 
-    public LocalDate getDateRegistered() { return dateRegistered; }
-    public void setDateRegistered(LocalDate dateRegistered) { this.dateRegistered = dateRegistered; }
-
     public String getDsc() { return dsc; }
     public void setDsc(String dsc) { this.dsc = dsc; }
+
+    public LocalDateTime getDateRegistered() { return dateRegistered; }
+    public void setDateRegistered(LocalDateTime dateRegistered) { this.dateRegistered = dateRegistered; }
 }

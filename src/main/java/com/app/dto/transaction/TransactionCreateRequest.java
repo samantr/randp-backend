@@ -4,6 +4,7 @@ import jakarta.validation.constraints.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 public record TransactionCreateRequest(
         @NotNull Long projectId,
@@ -18,6 +19,6 @@ public record TransactionCreateRequest(
         @NotBlank @Size(min = 3, max = 3) String paymentType,
         @NotBlank @Size(min = 3, max = 3) String transactionType,
 
-        @NotNull LocalDate dateRegistered,
+        @NotNull LocalDateTime dateRegistered,
         @Size(max = 4000) String dsc
 ) {}

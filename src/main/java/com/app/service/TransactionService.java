@@ -9,6 +9,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.*;
 
 @Service
@@ -40,19 +41,32 @@ public class TransactionService {
                 req.code(), req.dateDue(), req.amountPaid(),
                 req.paymentType(), req.transactionType(), req.dateRegistered(), req.dsc());
 
-        return toResponse(transactionRepository.save(t));
+        Transaction saved = transactionRepository.save(t);
+
+        BigDecimal allocated = getAllocatedForTransaction(saved.getId());
+        return toResponse(saved, allocated);
     }
 
     @Transactional(readOnly = true)
     public TransactionResponse getById(Long id) {
         Transaction t = transactionRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Transaction not found: " + id));
-        return toResponse(t);
+
+        BigDecimal allocated = getAllocatedForTransaction(id);
+        return toResponse(t, allocated);
     }
 
     @Transactional(readOnly = true)
     public List<TransactionResponse> getAll() {
-        return transactionRepository.findAll().stream().map(this::toResponse).toList();
+        List<Transaction> list = transactionRepository.findAll();
+        if (list.isEmpty()) return List.of();
+
+        List<Long> ids = list.stream().map(Transaction::getId).toList();
+        Map<Long, BigDecimal> allocatedMap = getAllocatedMapForTransactions(ids);
+
+        return list.stream()
+                .map(t -> toResponse(t, allocatedMap.getOrDefault(t.getId(), BigDecimal.ZERO)))
+                .toList();
     }
 
     @Transactional
@@ -68,7 +82,10 @@ public class TransactionService {
                 req.code(), req.dateDue(), req.amountPaid(),
                 req.paymentType(), req.transactionType(), req.dateRegistered(), req.dsc());
 
-        return toResponse(transactionRepository.save(t));
+        Transaction saved = transactionRepository.save(t);
+
+        BigDecimal allocated = getAllocatedForTransaction(saved.getId());
+        return toResponse(saved, allocated);
     }
 
     @Transactional
@@ -76,7 +93,6 @@ public class TransactionService {
         Transaction t = transactionRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("Transaction not found: " + id));
 
-        // referenced by transaction_tracks or documents?
         if (isTransactionReferenced(id)) {
             throw new IllegalArgumentException("Cannot delete transaction: referenced by tracks/documents.");
         }
@@ -91,42 +107,88 @@ public class TransactionService {
         if (projectId == null) throw new IllegalArgumentException("projectId is required.");
         if (personId == null) throw new IllegalArgumentException("personId is required.");
 
-        // ensure project & person exist (FKs exist in DB) :contentReference[oaicite:2]{index=2}
-        projectRepository.findById(projectId)
-                .orElseThrow(() -> new IllegalArgumentException("Project not found: " + projectId));
-        personRepository.findById(personId)
-                .orElseThrow(() -> new IllegalArgumentException("Person not found: " + personId));
+        projectRepository.findById(projectId).orElseThrow(() ->
+                new IllegalArgumentException("Project not found: " + projectId));
+        personRepository.findById(personId).orElseThrow(() ->
+                new IllegalArgumentException("Person not found: " + personId));
 
-        List<Transaction> list = transactionRepository.ledger(projectId, personId, from, to);
+        StringBuilder sql = new StringBuilder("""
+                select
+                    t.id as transaction_id,
+                    t.date_registered,
+                    t.code,
+                    t.from_person_id,
+                    t.to_person_id,
+                    t.amount_paid as amount,
+                    case
+                        when t.to_person_id = ? then t.amount_paid
+                        when t.from_person_id = ? then -t.amount_paid
+                        else 0
+                    end as delta_for_person,
+                    t.dsc
+                from transactions t
+                where t.project_id = ?
+                  and (t.from_person_id = ? or t.to_person_id = ?)
+                """);
+
+        List<Object> args = new ArrayList<>();
+        args.add(personId);
+        args.add(personId);
+        args.add(projectId);
+        args.add(personId);
+        args.add(personId);
+
+        if (from != null) {
+            sql.append(" and t.date_due >= ? ");
+            args.add(from);
+        }
+        if (to != null) {
+            sql.append(" and t.date_due <= ? ");
+            args.add(to);
+        }
+
+        sql.append(" order by t.date_registered asc, t.id asc ");
+
+        List<LedgerRowResponse> rows = jdbcTemplate.query(sql.toString(), (rs, rowNum) -> {
+            Long transactionId = rs.getLong("transaction_id");
+            LocalDateTime dateRegistered = rs.getTimestamp("date_registered").toLocalDateTime();
+            String code = rs.getString("code");
+            Long fromPersonId = rs.getLong("from_person_id");
+            Long toPersonId = rs.getLong("to_person_id");
+            BigDecimal amount = rs.getBigDecimal("amount");
+            BigDecimal delta = rs.getBigDecimal("delta_for_person");
+            String dsc = rs.getString("dsc");
+
+            return new LedgerRowResponse(
+                    transactionId,
+                    dateRegistered,
+                    code,
+                    fromPersonId,
+                    toPersonId,
+                    amount,
+                    delta,
+                    BigDecimal.ZERO, // runningBalance filled below
+                    dsc
+            );
+        }, args.toArray());
 
         BigDecimal running = BigDecimal.ZERO;
-        List<LedgerRowResponse> out = new ArrayList<>();
-
-        for (Transaction tr : list) {
-            BigDecimal delta = BigDecimal.ZERO;
-
-            if (tr.getToPerson().getId().equals(personId)) {
-                delta = delta.add(tr.getAmountPaid()); // money received
-            }
-            if (tr.getFromPerson().getId().equals(personId)) {
-                delta = delta.subtract(tr.getAmountPaid()); // money paid
-            }
-
-            running = running.add(delta);
-
-            out.add(new LedgerRowResponse(
-                    tr.getId(),
-                    tr.getDateRegistered(),
-                    tr.getCode(),
-                    tr.getFromPerson().getId(),
-                    tr.getToPerson().getId(),
-                    tr.getAmountPaid(),
-                    delta,
+        List<LedgerRowResponse> withBalance = new ArrayList<>();
+        for (LedgerRowResponse r : rows) {
+            running = running.add(r.deltaForPerson() == null ? BigDecimal.ZERO : r.deltaForPerson());
+            withBalance.add(new LedgerRowResponse(
+                    r.transactionId(),
+                    r.dateRegistered(),
+                    r.code(),
+                    r.fromPersonId(),
+                    r.toPersonId(),
+                    r.amount(),
+                    r.deltaForPerson(),
                     running,
-                    tr.getDsc()
+                    r.dsc()
             ));
         }
-        return out;
+        return withBalance;
     }
 
     @Transactional(readOnly = true)
@@ -134,79 +196,96 @@ public class TransactionService {
         if (projectId == null) throw new IllegalArgumentException("projectId is required.");
         if (personId == null) throw new IllegalArgumentException("personId is required.");
 
-        projectRepository.findById(projectId)
-                .orElseThrow(() -> new IllegalArgumentException("Project not found: " + projectId));
-        personRepository.findById(personId)
-                .orElseThrow(() -> new IllegalArgumentException("Person not found: " + personId));
+        projectRepository.findById(projectId).orElseThrow(() ->
+                new IllegalArgumentException("Project not found: " + projectId));
+        personRepository.findById(personId).orElseThrow(() ->
+                new IllegalArgumentException("Person not found: " + personId));
 
-        BigDecimal in = transactionRepository.sumIn(projectId, personId);
-        BigDecimal out = transactionRepository.sumOut(projectId, personId);
-        BigDecimal net = in.subtract(out);
+        BigDecimal totalIn = jdbcTemplate.queryForObject("""
+                        select coalesce(sum(amount_paid),0)
+                        from transactions
+                        where project_id = ? and to_person_id = ?
+                        """, BigDecimal.class, projectId, personId);
 
-        return new PersonBalanceResponse(projectId, personId, in, out, net);
+        BigDecimal totalOut = jdbcTemplate.queryForObject("""
+                        select coalesce(sum(amount_paid),0)
+                        from transactions
+                        where project_id = ? and from_person_id = ?
+                        """, BigDecimal.class, projectId, personId);
+
+        if (totalIn == null) totalIn = BigDecimal.ZERO;
+        if (totalOut == null) totalOut = BigDecimal.ZERO;
+
+        return new PersonBalanceResponse(projectId, personId, totalIn, totalOut, totalIn.subtract(totalOut));
     }
 
     @Transactional(readOnly = true)
-    public PairBalanceResponse pairBalance(Long projectId, Long fromId, Long toId) {
+    public PairBalanceResponse pairBalance(Long projectId, Long fromPersonId, Long toPersonId) {
         if (projectId == null) throw new IllegalArgumentException("projectId is required.");
-        if (fromId == null || toId == null) throw new IllegalArgumentException("fromPersonId/toPersonId are required.");
-        if (fromId.equals(toId)) throw new IllegalArgumentException("fromPersonId and toPersonId cannot be the same.");
+        if (fromPersonId == null) throw new IllegalArgumentException("fromPersonId is required.");
+        if (toPersonId == null) throw new IllegalArgumentException("toPersonId is required.");
 
-        projectRepository.findById(projectId)
-                .orElseThrow(() -> new IllegalArgumentException("Project not found: " + projectId));
-        personRepository.findById(fromId)
-                .orElseThrow(() -> new IllegalArgumentException("Person not found: " + fromId));
-        personRepository.findById(toId)
-                .orElseThrow(() -> new IllegalArgumentException("Person not found: " + toId));
+        projectRepository.findById(projectId).orElseThrow(() ->
+                new IllegalArgumentException("Project not found: " + projectId));
+        personRepository.findById(fromPersonId).orElseThrow(() ->
+                new IllegalArgumentException("Person not found: " + fromPersonId));
+        personRepository.findById(toPersonId).orElseThrow(() ->
+                new IllegalArgumentException("Person not found: " + toPersonId));
 
-        BigDecimal aToB = transactionRepository.sumFromTo(projectId, fromId, toId);
-        BigDecimal bToA = transactionRepository.sumFromTo(projectId, toId, fromId);
-        BigDecimal netFromToTo = aToB.subtract(bToA);
+        BigDecimal fromToToTotal = jdbcTemplate.queryForObject("""
+                        select coalesce(sum(amount_paid),0)
+                        from transactions
+                        where project_id = ? and from_person_id = ? and to_person_id = ?
+                        """, BigDecimal.class, projectId, fromPersonId, toPersonId);
 
-        return new PairBalanceResponse(projectId, fromId, toId, aToB, bToA, netFromToTo);
+        BigDecimal toToFromTotal = jdbcTemplate.queryForObject("""
+                        select coalesce(sum(amount_paid),0)
+                        from transactions
+                        where project_id = ? and from_person_id = ? and to_person_id = ?
+                        """, BigDecimal.class, projectId, toPersonId, fromPersonId);
+
+        if (fromToToTotal == null) fromToToTotal = BigDecimal.ZERO;
+        if (toToFromTotal == null) toToFromTotal = BigDecimal.ZERO;
+
+        return new PairBalanceResponse(projectId, fromPersonId, toPersonId,
+                fromToToTotal, toToFromTotal, fromToToTotal.subtract(toToFromTotal));
     }
 
-    // ---------------- Helpers ----------------
+    // ---------------- Internals ----------------
 
     private void validateCreateUpdate(Long projectId, Long fromPersonId, Long toPersonId,
                                       String code, BigDecimal amountPaid, String paymentType, String transactionType,
-                                      LocalDate dateDue, LocalDate dateRegistered, Long updatingId) {
+                                      LocalDate dateDue, LocalDateTime dateRegistered, Long currentId) {
 
         if (projectId == null) throw new IllegalArgumentException("projectId is required.");
         if (fromPersonId == null) throw new IllegalArgumentException("fromPersonId is required.");
         if (toPersonId == null) throw new IllegalArgumentException("toPersonId is required.");
-        if (fromPersonId.equals(toPersonId)) throw new IllegalArgumentException("fromPersonId and toPersonId cannot be the same.");
         if (code == null || code.trim().isEmpty()) throw new IllegalArgumentException("code is required.");
-        if (code.trim().length() > 50) throw new IllegalArgumentException("code max length is 50.");
-        if (amountPaid == null || amountPaid.compareTo(BigDecimal.ZERO) <= 0) throw new IllegalArgumentException("amountPaid must be > 0.");
-        if (paymentType == null || paymentType.trim().length() != 3) throw new IllegalArgumentException("paymentType must be 3 chars.");
-        if (transactionType == null || transactionType.trim().length() != 3) throw new IllegalArgumentException("transactionType must be 3 chars.");
+        if (amountPaid == null || amountPaid.compareTo(BigDecimal.ZERO) <= 0)
+            throw new IllegalArgumentException("amountPaid must be > 0.");
+        if (paymentType == null || paymentType.trim().length() != 3)
+            throw new IllegalArgumentException("paymentType must be 3 chars.");
+        if (transactionType == null || transactionType.trim().length() != 3)
+            throw new IllegalArgumentException("transactionType must be 3 chars.");
         if (dateDue == null) throw new IllegalArgumentException("dateDue is required.");
         if (dateRegistered == null) throw new IllegalArgumentException("dateRegistered is required.");
 
-        // existence checks (FKs in DB) :contentReference[oaicite:3]{index=3}
-        projectRepository.findById(projectId)
-                .orElseThrow(() -> new IllegalArgumentException("Project not found: " + projectId));
-        personRepository.findById(fromPersonId)
-                .orElseThrow(() -> new IllegalArgumentException("From person not found: " + fromPersonId));
-        personRepository.findById(toPersonId)
-                .orElseThrow(() -> new IllegalArgumentException("To person not found: " + toPersonId));
+        projectRepository.findById(projectId).orElseThrow(() ->
+                new IllegalArgumentException("Project not found: " + projectId));
+        personRepository.findById(fromPersonId).orElseThrow(() ->
+                new IllegalArgumentException("From person not found: " + fromPersonId));
+        personRepository.findById(toPersonId).orElseThrow(() ->
+                new IllegalArgumentException("To person not found: " + toPersonId));
 
-        // optional uniqueness check for code (DB does NOT show a unique constraint for transactions.code)
-        if (updatingId == null) {
-            if (transactionRepository.existsByCodeIgnoreCase(code.trim())) {
-                throw new IllegalArgumentException("Transaction code already exists.");
-            }
-        } else {
-            if (transactionRepository.existsByCodeIgnoreCaseAndIdNot(code.trim(), updatingId)) {
-                throw new IllegalArgumentException("Transaction code already exists.");
-            }
+        Long existingId = transactionRepository.findByCode(code.trim()).map(Transaction::getId).orElse(null);
+        if (existingId != null && (currentId == null || !existingId.equals(currentId))) {
+            throw new IllegalArgumentException("code already exists: " + code.trim());
         }
     }
 
     private void apply(Transaction t, Long projectId, Long fromPersonId, Long toPersonId,
                        String code, LocalDate dateDue, BigDecimal amountPaid,
-                       String paymentType, String transactionType, LocalDate dateRegistered, String dsc) {
+                       String paymentType, String transactionType, LocalDateTime dateRegistered, String dsc) {
 
         Project project = projectRepository.findById(projectId).orElseThrow();
         Person from = personRepository.findById(fromPersonId).orElseThrow();
@@ -224,7 +303,12 @@ public class TransactionService {
         t.setDsc(trimToNull(dsc));
     }
 
-    private TransactionResponse toResponse(Transaction t) {
+    private TransactionResponse toResponse(Transaction t, BigDecimal allocatedAmount) {
+        BigDecimal amountPaid = t.getAmountPaid() == null ? BigDecimal.ZERO : t.getAmountPaid();
+        BigDecimal allocated = allocatedAmount == null ? BigDecimal.ZERO : allocatedAmount;
+        BigDecimal remaining = amountPaid.subtract(allocated);
+        if (remaining.compareTo(BigDecimal.ZERO) < 0) remaining = BigDecimal.ZERO;
+
         return new TransactionResponse(
                 t.getId(),
                 t.getProject().getId(),
@@ -236,7 +320,9 @@ public class TransactionService {
                 t.getPaymentType(),
                 t.getTransactionType(),
                 t.getDateRegistered(),
-                t.getDsc()
+                t.getDsc(),
+                allocated,
+                remaining
         );
     }
 
@@ -247,7 +333,6 @@ public class TransactionService {
     }
 
     private boolean isTransactionReferenced(Long transactionId) {
-        // transaction_tracks(transaction_id FK) + transaction_documents(transaction_id FK) :contentReference[oaicite:4]{index=4} :contentReference[oaicite:5]{index=5}
         Integer trackCount = jdbcTemplate.queryForObject(
                 "select count(1) from transaction_tracks where transaction_id = ?",
                 Integer.class, transactionId
@@ -257,5 +342,38 @@ public class TransactionService {
                 Integer.class, transactionId
         );
         return (trackCount != null && trackCount > 0) || (docCount != null && docCount > 0);
+    }
+
+    private BigDecimal getAllocatedForTransaction(Long transactionId) {
+        BigDecimal sum = jdbcTemplate.queryForObject("""
+                select coalesce(sum(covered_amount), 0)
+                from transaction_tracks
+                where transaction_id = ?
+                """, BigDecimal.class, transactionId);
+        return sum == null ? BigDecimal.ZERO : sum;
+    }
+
+    private Map<Long, BigDecimal> getAllocatedMapForTransactions(List<Long> transactionIds) {
+        if (transactionIds == null || transactionIds.isEmpty()) return Map.of();
+
+        String placeholders = String.join(",", transactionIds.stream().map(x -> "?").toList());
+
+        String sql = """
+                select transaction_id, coalesce(sum(covered_amount), 0) as allocated
+                from transaction_tracks
+                where transaction_id in (""" + placeholders + """
+                )
+                group by transaction_id
+                """;
+
+        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, transactionIds.toArray());
+
+        Map<Long, BigDecimal> map = new HashMap<>();
+        for (Map<String, Object> r : rows) {
+            Long id = ((Number) r.get("transaction_id")).longValue();
+            BigDecimal allocated = (BigDecimal) r.get("allocated");
+            map.put(id, allocated == null ? BigDecimal.ZERO : allocated);
+        }
+        return map;
     }
 }

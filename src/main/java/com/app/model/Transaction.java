@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "transactions")
@@ -45,8 +46,9 @@ public class Transaction {
     @Column(name = "transaction_type", nullable = false, length = 3)
     private String transactionType;
 
+    // CHANGED: date -> datetime
     @Column(name = "date_registered", nullable = false)
-    private LocalDate dateRegistered;
+    private LocalDateTime dateRegistered;
 
     @Column(name = "dsc", length = 4000)
     private String dsc;
@@ -79,8 +81,8 @@ public class Transaction {
     public String getTransactionType() { return transactionType; }
     public void setTransactionType(String transactionType) { this.transactionType = transactionType; }
 
-    public LocalDate getDateRegistered() { return dateRegistered; }
-    public void setDateRegistered(LocalDate dateRegistered) { this.dateRegistered = dateRegistered; }
+    public LocalDateTime getDateRegistered() { return dateRegistered; }
+    public void setDateRegistered(LocalDateTime dateRegistered) { this.dateRegistered = dateRegistered; }
 
     public String getDsc() { return dsc; }
     public void setDsc(String dsc) { this.dsc = dsc; }

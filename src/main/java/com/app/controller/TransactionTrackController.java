@@ -25,6 +25,14 @@ public class TransactionTrackController {
         return ResponseEntity.status(HttpStatus.CREATED).body(trackService.allocate(debtId, req));
     }
 
+    // PUT /api/v1/debts/{debtId}/allocations/{allocationId}
+    @PutMapping("/{debtId}/allocations/{allocationId}")
+    public ResponseEntity<AllocationResponse> update(@PathVariable Long debtId,
+                                                     @PathVariable Long allocationId,
+                                                     @Valid @RequestBody AllocationUpdateRequest req) {
+        return ResponseEntity.ok(trackService.updateFromDebt(debtId, allocationId, req));
+    }
+
     // GET /api/v1/debts/{debtId}/allocations
     @GetMapping("/{debtId}/allocations")
     public ResponseEntity<List<AllocationResponse>> list(@PathVariable Long debtId) {
@@ -36,5 +44,14 @@ public class TransactionTrackController {
     public ResponseEntity<Void> delete(@PathVariable Long debtId, @PathVariable Long allocationId) {
         trackService.delete(debtId, allocationId);
         return ResponseEntity.noContent().build();
+    }
+
+    // GET /api/v1/debts/{debtId}/allocation-candidates/transactions?allocationId=123
+    @GetMapping("/{debtId}/allocation-candidates/transactions")
+    public ResponseEntity<List<TransactionCandidateResponse>> transactionCandidates(
+            @PathVariable Long debtId,
+            @RequestParam(required = false) Long allocationId
+    ) {
+        return ResponseEntity.ok(trackService.transactionCandidatesForDebt(debtId, allocationId));
     }
 }

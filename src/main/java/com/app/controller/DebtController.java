@@ -57,4 +57,12 @@ public class DebtController {
     ) {
         return ResponseEntity.ok(debtService.openDebts(projectId, personId));
     }
+
+    // GET /api/v1/debts
+    @GetMapping
+    public ResponseEntity<List<Map<String, Object>>> getAllDebts() {
+        return ResponseEntity.ok(debtService.getAllDebts());
+    }
+
+
 }

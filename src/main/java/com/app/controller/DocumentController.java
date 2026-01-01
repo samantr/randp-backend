@@ -28,10 +28,20 @@ public class DocumentController {
                                                   @RequestPart("file") MultipartFile file,
                                                   @RequestPart(value = "dsc", required = false) String dsc) throws IOException {
 
-        Long docId = documentService.uploadTransactionDoc(transactionId, file.getBytes(), dscOrMeta(dsc, file));
-        return ResponseEntity.status(HttpStatus.CREATED).body(
-                java.util.Map.of("documentId", docId)
+        final long MAX = 10L * 1024 * 1024; // 10MB
+        if (file.getBytes().length > MAX) {
+            throw new IllegalArgumentException("حداکثر حجم فایل 10 مگابایت است.");
+        }
+
+        Long docId = documentService.uploadTransactionDoc(
+                transactionId,
+                file.getBytes(),
+                safeName(file.getOriginalFilename()),
+                safe(file.getContentType()),
+                safe(dsc)
         );
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(java.util.Map.of("documentId", docId));
     }
 
     @GetMapping("/transactions/{transactionId}/documents")
@@ -43,12 +53,18 @@ public class DocumentController {
     public ResponseEntity<byte[]> downloadTransactionDoc(@PathVariable Long docId) {
         TransactionDocument doc = documentService.getTransactionDoc(docId);
 
-        // We don't store content-type/filename in DB. Use generic download.
-        String filename = "transaction_document_" + docId;
+        String filename = (doc.getFileName() != null && !doc.getFileName().isBlank())
+                ? doc.getFileName()
+                : "transaction_document_" + docId;
+
+        MediaType mt = MediaType.APPLICATION_OCTET_STREAM;
+        if (doc.getContentType() != null && !doc.getContentType().isBlank()) {
+            try { mt = MediaType.parseMediaType(doc.getContentType()); } catch (Exception ignored) {}
+        }
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
-                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .contentType(mt)
                 .body(doc.getDoc());
     }
 
@@ -65,10 +81,19 @@ public class DocumentController {
                                            @RequestPart("file") MultipartFile file,
                                            @RequestPart(value = "dsc", required = false) String dsc) throws IOException {
 
-        Long docId = documentService.uploadDebtDoc(debtId, file.getBytes(), dscOrMeta(dsc, file));
-        return ResponseEntity.status(HttpStatus.CREATED).body(
-                java.util.Map.of("documentId", docId)
+        final long MAX = 10L * 1024 * 1024; // 10MB
+        if (file.getBytes().length > MAX) {
+            throw new IllegalArgumentException("حداکثر حجم فایل 10 مگابایت است.");
+        }
+        Long docId = documentService.uploadDebtDoc(
+                debtId,
+                file.getBytes(),
+                safeName(file.getOriginalFilename()),
+                safe(file.getContentType()),
+                safe(dsc)
         );
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(java.util.Map.of("documentId", docId));
     }
 
     @GetMapping("/debts/{debtId}/documents")
@@ -80,11 +105,18 @@ public class DocumentController {
     public ResponseEntity<byte[]> downloadDebtDoc(@PathVariable Long docId) {
         DebtDocument doc = documentService.getDebtDoc(docId);
 
-        String filename = "debt_document_" + docId;
+        String filename = (doc.getFileName() != null && !doc.getFileName().isBlank())
+                ? doc.getFileName()
+                : "debt_document_" + docId;
+
+        MediaType mt = MediaType.APPLICATION_OCTET_STREAM;
+        if (doc.getContentType() != null && !doc.getContentType().isBlank()) {
+            try { mt = MediaType.parseMediaType(doc.getContentType()); } catch (Exception ignored) {}
+        }
 
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
-                .contentType(MediaType.APPLICATION_OCTET_STREAM)
+                .contentType(mt)
                 .body(doc.getDoc());
     }
 
@@ -94,13 +126,15 @@ public class DocumentController {
         return ResponseEntity.noContent().build();
     }
 
-    // If user doesn't pass dsc, store some minimal metadata there.
-    private String dscOrMeta(String dsc, MultipartFile file) {
-        if (dsc != null && !dsc.trim().isEmpty()) return dsc.trim();
-        return "filename=" + safe(file.getOriginalFilename()) + "; contentType=" + safe(file.getContentType());
+    private String safe(String s) {
+        if (s == null) return null;
+        String t = s.replace("\n", " ").replace("\r", " ").trim();
+        return t.isEmpty() ? null : t;
     }
 
-    private String safe(String s) {
-        return s == null ? "" : s.replace("\n", " ").replace("\r", " ").trim();
+    private String safeName(String s) {
+        String t = safe(s);
+        if (t == null) return null;
+        return t.replace("\"", "'");
     }
 }

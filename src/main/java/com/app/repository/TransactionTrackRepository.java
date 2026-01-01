@@ -14,6 +14,8 @@ public interface TransactionTrackRepository extends JpaRepository<TransactionTra
 
     List<TransactionTrack> findByDebtHeader_IdOrderByIdDesc(Long debtHeaderId);
 
+    List<TransactionTrack> findByTransaction_IdOrderByIdDesc(Long transactionId);
+
     @Query("select coalesce(sum(tt.coveredAmount),0) from TransactionTrack tt where tt.debtHeader.id = :debtId")
     BigDecimal sumCoveredByDebt(@Param("debtId") Long debtId);
 

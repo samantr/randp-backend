@@ -7,7 +7,7 @@ import java.math.BigDecimal;
 @Table(
         name = "debts_detail",
         uniqueConstraints = {
-                @UniqueConstraint(name = "IX_debts_detail", columnNames = {"debts_header_id", "item_id"})
+                @UniqueConstraint(name = "IX_debts_detail", columnNames = {"debt_header_id", "item_id"})
         }
 )
 public class DebtDetail {
@@ -18,7 +18,7 @@ public class DebtDetail {
 
     // FK -> debts_header(id)
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "debts_header_id", nullable = false)
+    @JoinColumn(name = "debt_header_id", nullable = false)
     private DebtHeader debtHeader;
 
     // FK -> items(id)

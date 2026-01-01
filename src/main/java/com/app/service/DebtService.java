@@ -168,7 +168,7 @@ public class DebtService {
                 coalesce(tt.covered,0) as covered_amount,
                 (coalesce(sum(cast(dd.qnt as decimal(18,3)) * cast(dd.unit_price as decimal(18,0))),0) - coalesce(tt.covered,0)) as remaining_amount
             from debts_header dh
-            join debts_detail dd on dd.debts_header_id = dh.id
+            join debts_detail dd on dd.debt_header_id = dh.id
             left join (
                 select debt_header_id, coalesce(sum(covered_amount),0) as covered
                 from transaction_tracks
@@ -190,7 +190,7 @@ public class DebtService {
                              Long projectId,
                              Long personId,
                              java.time.LocalDate dateDue,
-                             java.time.LocalDate dateRegistered,
+                             java.time.LocalDateTime dateRegistered,
                              String dsc) {
 
         if (projectId == null) throw new IllegalArgumentException("projectId is required.");
@@ -268,7 +268,7 @@ public class DebtService {
             from debts_detail dd
             join items i on i.id = dd.item_id
             join units u on u.id = dd.unit_id
-            where dd.debts_header_id = ?
+            where dd.debt_header_id = ?
             order by dd.id asc
             """;
 
@@ -326,4 +326,56 @@ public class DebtService {
         String t = s.trim();
         return t.isEmpty() ? null : t;
     }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> getAllDebts() {
+
+        String sql = """
+        select
+            dh.id as debt_id,
+            dh.project_id,
+            dh.person_id,
+            dh.date_registered,
+            dh.date_due,
+
+            coalesce(
+                sum(cast(dd.qnt as decimal(18,3)) * cast(dd.unit_price as decimal(18,0))),
+                0
+            ) as total_amount,
+
+            coalesce(tt.covered, 0) as covered_amount,
+
+            (
+                coalesce(
+                    sum(cast(dd.qnt as decimal(18,3)) * cast(dd.unit_price as decimal(18,0))),
+                    0
+                ) - coalesce(tt.covered, 0)
+            ) as remaining_amount
+
+        from debts_header dh
+        join debts_detail dd
+            on dd.debt_header_id = dh.id
+
+        left join (
+            select
+                debt_header_id,
+                coalesce(sum(covered_amount), 0) as covered
+            from transaction_tracks
+            group by debt_header_id
+        ) tt on tt.debt_header_id = dh.id
+
+        group by
+            dh.id,
+            dh.project_id,
+            dh.person_id,
+            dh.date_registered,
+            dh.date_due,
+            tt.covered
+
+        order by dh.date_registered desc, dh.id desc
+        """;
+
+        return jdbcTemplate.queryForList(sql);
+    }
+
 }
