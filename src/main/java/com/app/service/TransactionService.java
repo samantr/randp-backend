@@ -49,8 +49,10 @@ public class TransactionService {
 
     @Transactional(readOnly = true)
     public TransactionResponse getById(Long id) {
+        if (id == null) throw new IllegalArgumentException("شناسه پرداخت الزامی است.");
+
         Transaction t = transactionRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Transaction not found: " + id));
+                .orElseThrow(() -> new IllegalArgumentException("پرداخت مورد نظر یافت نشد. (شناسه: " + id + ")"));
 
         BigDecimal allocated = getAllocatedForTransaction(id);
         return toResponse(t, allocated);
@@ -71,8 +73,10 @@ public class TransactionService {
 
     @Transactional
     public TransactionResponse update(Long id, TransactionUpdateRequest req) {
+        if (id == null) throw new IllegalArgumentException("شناسه پرداخت الزامی است.");
+
         Transaction t = transactionRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Transaction not found: " + id));
+                .orElseThrow(() -> new IllegalArgumentException("پرداخت مورد نظر یافت نشد. (شناسه: " + id + ")"));
 
         validateCreateUpdate(req.projectId(), req.fromPersonId(), req.toPersonId(),
                 req.code(), req.amountPaid(), req.paymentType(), req.transactionType(),
@@ -90,11 +94,13 @@ public class TransactionService {
 
     @Transactional
     public void delete(Long id) {
+        if (id == null) throw new IllegalArgumentException("شناسه پرداخت الزامی است.");
+
         Transaction t = transactionRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Transaction not found: " + id));
+                .orElseThrow(() -> new IllegalArgumentException("پرداخت مورد نظر یافت نشد. (شناسه: " + id + ")"));
 
         if (isTransactionReferenced(id)) {
-            throw new IllegalArgumentException("Cannot delete transaction: referenced by tracks/documents.");
+            throw new IllegalArgumentException("امکان حذف پرداخت وجود ندارد؛ برای این پرداخت تخصیص یا سند ثبت شده است.");
         }
 
         transactionRepository.delete(t);
@@ -104,13 +110,13 @@ public class TransactionService {
 
     @Transactional(readOnly = true)
     public List<LedgerRowResponse> ledger(Long projectId, Long personId, LocalDate from, LocalDate to) {
-        if (projectId == null) throw new IllegalArgumentException("projectId is required.");
-        if (personId == null) throw new IllegalArgumentException("personId is required.");
+        if (projectId == null) throw new IllegalArgumentException("شناسه پروژه الزامی است.");
+        if (personId == null) throw new IllegalArgumentException("شناسه شخص الزامی است.");
 
         projectRepository.findById(projectId).orElseThrow(() ->
-                new IllegalArgumentException("Project not found: " + projectId));
+                new IllegalArgumentException("پروژه مورد نظر یافت نشد. (شناسه: " + projectId + ")"));
         personRepository.findById(personId).orElseThrow(() ->
-                new IllegalArgumentException("Person not found: " + personId));
+                new IllegalArgumentException("شخص مورد نظر یافت نشد. (شناسه: " + personId + ")"));
 
         StringBuilder sql = new StringBuilder("""
                 select
@@ -193,13 +199,13 @@ public class TransactionService {
 
     @Transactional(readOnly = true)
     public PersonBalanceResponse personBalance(Long projectId, Long personId) {
-        if (projectId == null) throw new IllegalArgumentException("projectId is required.");
-        if (personId == null) throw new IllegalArgumentException("personId is required.");
+        if (projectId == null) throw new IllegalArgumentException("شناسه پروژه الزامی است.");
+        if (personId == null) throw new IllegalArgumentException("شناسه شخص الزامی است.");
 
         projectRepository.findById(projectId).orElseThrow(() ->
-                new IllegalArgumentException("Project not found: " + projectId));
+                new IllegalArgumentException("پروژه مورد نظر یافت نشد. (شناسه: " + projectId + ")"));
         personRepository.findById(personId).orElseThrow(() ->
-                new IllegalArgumentException("Person not found: " + personId));
+                new IllegalArgumentException("شخص مورد نظر یافت نشد. (شناسه: " + personId + ")"));
 
         BigDecimal totalIn = jdbcTemplate.queryForObject("""
                         select coalesce(sum(amount_paid),0)
@@ -221,16 +227,16 @@ public class TransactionService {
 
     @Transactional(readOnly = true)
     public PairBalanceResponse pairBalance(Long projectId, Long fromPersonId, Long toPersonId) {
-        if (projectId == null) throw new IllegalArgumentException("projectId is required.");
-        if (fromPersonId == null) throw new IllegalArgumentException("fromPersonId is required.");
-        if (toPersonId == null) throw new IllegalArgumentException("toPersonId is required.");
+        if (projectId == null) throw new IllegalArgumentException("شناسه پروژه الزامی است.");
+        if (fromPersonId == null) throw new IllegalArgumentException("شناسه شخص پرداخت‌کننده (fromPerson) الزامی است.");
+        if (toPersonId == null) throw new IllegalArgumentException("شناسه شخص دریافت‌کننده (toPerson) الزامی است.");
 
         projectRepository.findById(projectId).orElseThrow(() ->
-                new IllegalArgumentException("Project not found: " + projectId));
+                new IllegalArgumentException("پروژه مورد نظر یافت نشد. (شناسه: " + projectId + ")"));
         personRepository.findById(fromPersonId).orElseThrow(() ->
-                new IllegalArgumentException("Person not found: " + fromPersonId));
+                new IllegalArgumentException("شخص پرداخت‌کننده یافت نشد. (شناسه: " + fromPersonId + ")"));
         personRepository.findById(toPersonId).orElseThrow(() ->
-                new IllegalArgumentException("Person not found: " + toPersonId));
+                new IllegalArgumentException("شخص دریافت‌کننده یافت نشد. (شناسه: " + toPersonId + ")"));
 
         BigDecimal fromToToTotal = jdbcTemplate.queryForObject("""
                         select coalesce(sum(amount_paid),0)
@@ -257,29 +263,39 @@ public class TransactionService {
                                       String code, BigDecimal amountPaid, String paymentType, String transactionType,
                                       LocalDate dateDue, LocalDateTime dateRegistered, Long currentId) {
 
-        if (projectId == null) throw new IllegalArgumentException("projectId is required.");
-        if (fromPersonId == null) throw new IllegalArgumentException("fromPersonId is required.");
-        if (toPersonId == null) throw new IllegalArgumentException("toPersonId is required.");
-        if (code == null || code.trim().isEmpty()) throw new IllegalArgumentException("code is required.");
+        if (projectId == null) throw new IllegalArgumentException("پروژه الزامی است.");
+        if (fromPersonId == null) throw new IllegalArgumentException("شخص پرداخت‌کننده (fromPerson) الزامی است.");
+        if (toPersonId == null) throw new IllegalArgumentException("شخص دریافت‌کننده (toPerson) الزامی است.");
+
+        // منطقی: یک نفر نمی‌تواند هم پرداخت‌کننده و هم دریافت‌کننده همان تراکنش باشد
+        if (fromPersonId != null && toPersonId != null && fromPersonId.equals(toPersonId)) {
+            throw new IllegalArgumentException("پرداخت‌کننده و دریافت‌کننده نمی‌توانند یکسان باشند.");
+        }
+
+        if (code == null || code.trim().isEmpty()) throw new IllegalArgumentException("کد پرداخت الزامی است.");
         if (amountPaid == null || amountPaid.compareTo(BigDecimal.ZERO) <= 0)
-            throw new IllegalArgumentException("amountPaid must be > 0.");
+            throw new IllegalArgumentException("مبلغ پرداخت باید بزرگتر از صفر باشد.");
+
         if (paymentType == null || paymentType.trim().length() != 3)
-            throw new IllegalArgumentException("paymentType must be 3 chars.");
+            throw new IllegalArgumentException("نوع پرداخت (paymentType) باید ۳ حرفی باشد.");
         if (transactionType == null || transactionType.trim().length() != 3)
-            throw new IllegalArgumentException("transactionType must be 3 chars.");
-        if (dateDue == null) throw new IllegalArgumentException("dateDue is required.");
-        if (dateRegistered == null) throw new IllegalArgumentException("dateRegistered is required.");
+            throw new IllegalArgumentException("نوع تراکنش (transactionType) باید ۳ حرفی باشد.");
+
+        if (dateDue == null) throw new IllegalArgumentException("تاریخ سررسید الزامی است.");
+        if (dateRegistered == null) throw new IllegalArgumentException("تاریخ ثبت الزامی است.");
 
         projectRepository.findById(projectId).orElseThrow(() ->
-                new IllegalArgumentException("Project not found: " + projectId));
+                new IllegalArgumentException("پروژه مورد نظر یافت نشد. (شناسه: " + projectId + ")"));
         personRepository.findById(fromPersonId).orElseThrow(() ->
-                new IllegalArgumentException("From person not found: " + fromPersonId));
+                new IllegalArgumentException("شخص پرداخت‌کننده یافت نشد. (شناسه: " + fromPersonId + ")"));
         personRepository.findById(toPersonId).orElseThrow(() ->
-                new IllegalArgumentException("To person not found: " + toPersonId));
+                new IllegalArgumentException("شخص دریافت‌کننده یافت نشد. (شناسه: " + toPersonId + ")"));
 
-        Long existingId = transactionRepository.findByCode(code.trim()).map(Transaction::getId).orElse(null);
+        String normalizedCode = code.trim();
+
+        Long existingId = transactionRepository.findByCode(normalizedCode).map(Transaction::getId).orElse(null);
         if (existingId != null && (currentId == null || !existingId.equals(currentId))) {
-            throw new IllegalArgumentException("code already exists: " + code.trim());
+            throw new IllegalArgumentException("این کد پرداخت قبلاً ثبت شده است: " + normalizedCode);
         }
     }
 
@@ -287,9 +303,12 @@ public class TransactionService {
                        String code, LocalDate dateDue, BigDecimal amountPaid,
                        String paymentType, String transactionType, LocalDateTime dateRegistered, String dsc) {
 
-        Project project = projectRepository.findById(projectId).orElseThrow();
-        Person from = personRepository.findById(fromPersonId).orElseThrow();
-        Person to = personRepository.findById(toPersonId).orElseThrow();
+        Project project = projectRepository.findById(projectId)
+                .orElseThrow(() -> new IllegalArgumentException("پروژه مورد نظر یافت نشد. (شناسه: " + projectId + ")"));
+        Person from = personRepository.findById(fromPersonId)
+                .orElseThrow(() -> new IllegalArgumentException("شخص پرداخت‌کننده یافت نشد. (شناسه: " + fromPersonId + ")"));
+        Person to = personRepository.findById(toPersonId)
+                .orElseThrow(() -> new IllegalArgumentException("شخص دریافت‌کننده یافت نشد. (شناسه: " + toPersonId + ")"));
 
         t.setProject(project);
         t.setFromPerson(from);

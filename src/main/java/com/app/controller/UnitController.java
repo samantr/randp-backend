@@ -3,7 +3,8 @@ package com.app.controller;
 import com.app.dto.unit.*;
 import com.app.service.UnitService;
 import jakarta.validation.Valid;
-import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -18,30 +19,37 @@ public class UnitController {
         this.service = service;
     }
 
-    @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
-    public UnitResponse create(@Valid @RequestBody UnitCreateRequest req) {
-        return service.create(req);
+    @PostMapping(
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<UnitResponse> create(@Valid @RequestBody UnitCreateRequest req) {
+        return ResponseEntity.status(201).body(service.create(req));
     }
 
-    @GetMapping
-    public List<UnitResponse> getAll() {
-        return service.getAll();
+    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<List<UnitResponse>> getAll() {
+        return ResponseEntity.ok(service.getAll());
     }
 
-    @GetMapping("/{id}")
-    public UnitResponse getById(@PathVariable Long id) {
-        return service.getById(id);
+    @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<UnitResponse> getById(@PathVariable Long id) {
+        return ResponseEntity.ok(service.getById(id));
     }
 
-    @PutMapping("/{id}")
-    public UnitResponse update(@PathVariable Long id, @Valid @RequestBody UnitUpdateRequest req) {
-        return service.update(id, req);
+    @PutMapping(
+            value = "/{id}",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<UnitResponse> update(@PathVariable Long id,
+                                               @Valid @RequestBody UnitUpdateRequest req) {
+        return ResponseEntity.ok(service.update(id, req));
     }
 
     @DeleteMapping("/{id}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable Long id) {
+    public ResponseEntity<Void> delete(@PathVariable Long id) {
         service.delete(id);
+        return ResponseEntity.noContent().build();
     }
 }

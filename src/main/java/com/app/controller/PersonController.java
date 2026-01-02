@@ -6,7 +6,8 @@ import com.app.dto.person.PersonUpdateRequest;
 import com.app.service.PersonService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.*;
-import org.springframework.http.*;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -19,12 +20,15 @@ public class PersonController {
         this.personService = personService;
     }
 
-    @PostMapping
+    @PostMapping(
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
     public ResponseEntity<PersonResponse> create(@Valid @RequestBody PersonCreateRequest req) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(personService.create(req));
+        return ResponseEntity.status(201).body(personService.create(req));
     }
 
-    @GetMapping
+    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Page<PersonResponse>> getAll(
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size
@@ -33,12 +37,16 @@ public class PersonController {
         return ResponseEntity.ok(personService.getAll(pageable));
     }
 
-    @GetMapping("/{id}")
+    @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<PersonResponse> getById(@PathVariable Long id) {
         return ResponseEntity.ok(personService.getById(id));
     }
 
-    @PutMapping("/{id}")
+    @PutMapping(
+            value = "/{id}",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
     public ResponseEntity<PersonResponse> update(@PathVariable Long id,
                                                  @Valid @RequestBody PersonUpdateRequest req) {
         return ResponseEntity.ok(personService.update(id, req));
@@ -51,7 +59,7 @@ public class PersonController {
     }
 
     // Extra endpoint: search
-    @GetMapping("/search")
+    @GetMapping(value = "/search", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Page<PersonResponse>> search(
             @RequestParam(defaultValue = "") String q,
             @RequestParam(defaultValue = "0") int page,

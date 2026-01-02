@@ -10,7 +10,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.*;
-import java.util.stream.Collectors;
 
 @Service
 public class DebtService {
@@ -49,6 +48,10 @@ public class DebtService {
 
     @Transactional
     public DebtHeaderResponse create(DebtCreateRequest req) {
+        if (req == null) throw new IllegalArgumentException("اطلاعات بدهی ارسال نشده است.");
+        if (req.lines() == null || req.lines().isEmpty())
+            throw new IllegalArgumentException("حداقل یک ردیف برای بدهی الزامی است.");
+
         DebtHeader header = new DebtHeader();
         applyHeader(header, req.projectId(), req.personId(), req.dateDue(), req.dateRegistered(), req.dsc());
 
@@ -57,29 +60,38 @@ public class DebtService {
             saveLines(savedHeader, req.lines());
             return toHeaderResponse(savedHeader);
         } catch (DataIntegrityViolationException e) {
-            throw new IllegalArgumentException("Debt could not be saved (DB constraint).");
+            throw new IllegalArgumentException("ثبت بدهی انجام نشد. احتمالاً داده تکراری است یا محدودیت دیتابیس وجود دارد.");
         }
     }
 
     @Transactional(readOnly = true)
     public DebtHeaderResponse getById(Long id) {
+        if (id == null) throw new IllegalArgumentException("شناسه بدهی الزامی است.");
+
         DebtHeader h = debtHeaderRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Debt not found: " + id));
+                .orElseThrow(() -> new IllegalArgumentException("بدهی مورد نظر یافت نشد. (شناسه: " + id + ")"));
         return toHeaderResponse(h);
     }
 
     @Transactional
     public DebtHeaderResponse update(Long id, DebtUpdateRequest req) {
-        DebtHeader header = debtHeaderRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Debt not found: " + id));
+        if (id == null) throw new IllegalArgumentException("شناسه بدهی الزامی است.");
+        if (req == null) throw new IllegalArgumentException("اطلاعات ویرایش بدهی ارسال نشده است.");
+        if (req.lines() == null || req.lines().isEmpty())
+            throw new IllegalArgumentException("حداقل یک ردیف برای بدهی الزامی است.");
 
-        // If allocations exist, we still allow update of header fields,
-        // but replacing lines must not reduce total below already covered.
+        DebtHeader header = debtHeaderRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("بدهی مورد نظر یافت نشد. (شناسه: " + id + ")"));
+
+        // اگر تخصیص داشته باشد، اجازه ویرایش هدر هست،
+        // اما جمع ردیف‌های جدید نباید از مبلغ تخصیص‌داده‌شده کمتر شود.
         BigDecimal alreadyCovered = trackRepository.sumCoveredByDebt(id);
         BigDecimal newTotal = calcTotalFromLines(req.lines());
 
         if (alreadyCovered != null && newTotal.compareTo(alreadyCovered) < 0) {
-            throw new IllegalArgumentException("New total is less than already covered amount: " + alreadyCovered);
+            throw new IllegalArgumentException(
+                    "مبلغ جدید بدهی نمی‌تواند کمتر از مبلغ تخصیص داده شده باشد. مبلغ تخصیص: " + fmt(alreadyCovered)
+            );
         }
 
         applyHeader(header, req.projectId(), req.personId(), req.dateDue(), req.dateRegistered(), req.dsc());
@@ -87,33 +99,35 @@ public class DebtService {
         try {
             DebtHeader saved = debtHeaderRepository.save(header);
 
-            // Replace all lines (simple and safe)
+            // جایگزینی کامل ردیف‌ها
             debtDetailRepository.deleteByDebtHeader_Id(id);
             saveLines(saved, req.lines());
 
             return toHeaderResponse(saved);
         } catch (DataIntegrityViolationException e) {
-            throw new IllegalArgumentException("Debt could not be updated (DB constraint).");
+            throw new IllegalArgumentException("ویرایش بدهی انجام نشد. احتمالاً داده تکراری است یا محدودیت دیتابیس وجود دارد.");
         }
     }
 
     @Transactional
     public void delete(Long id) {
-        DebtHeader h = debtHeaderRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Debt not found: " + id));
+        if (id == null) throw new IllegalArgumentException("شناسه بدهی الزامی است.");
 
-        // cannot delete if allocations exist
+        DebtHeader h = debtHeaderRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("بدهی مورد نظر یافت نشد. (شناسه: " + id + ")"));
+
+        // اگر تخصیص داشته باشد، حذف ممنوع
         BigDecimal covered = trackRepository.sumCoveredByDebt(id);
         if (covered != null && covered.compareTo(BigDecimal.ZERO) > 0) {
-            throw new IllegalArgumentException("Cannot delete debt: it has allocations/covered amounts.");
+            throw new IllegalArgumentException("امکان حذف بدهی وجود ندارد؛ برای این بدهی تخصیص ثبت شده است.");
         }
 
-        // cannot delete if documents exist (debts_documents has FK)
+        // اگر سند/پیوست داشته باشد، حذف ممنوع (FK)
         if (hasDebtDocuments(id)) {
-            throw new IllegalArgumentException("Cannot delete debt: it has documents attached.");
+            throw new IllegalArgumentException("امکان حذف بدهی وجود ندارد؛ برای این بدهی سند/فایل پیوست شده است.");
         }
 
-        // delete details then header (FK)
+        // حذف ردیف‌ها و سپس هدر
         debtDetailRepository.deleteByDebtHeader_Id(id);
         debtHeaderRepository.delete(h);
     }
@@ -122,8 +136,10 @@ public class DebtService {
 
     @Transactional(readOnly = true)
     public DebtViewResponse view(Long debtId) {
+        if (debtId == null) throw new IllegalArgumentException("شناسه بدهی الزامی است.");
+
         DebtHeader h = debtHeaderRepository.findById(debtId)
-                .orElseThrow(() -> new IllegalArgumentException("Debt not found: " + debtId));
+                .orElseThrow(() -> new IllegalArgumentException("بدهی مورد نظر یافت نشد. (شناسه: " + debtId + ")"));
 
         List<DebtLineResponse> lines = loadDebtLinesWithTitles(debtId);
 
@@ -149,14 +165,10 @@ public class DebtService {
     }
 
     // ---------------- "Open debts" listing ----------------
-    // returns IDs + remaining; keep it simple for now
     @Transactional(readOnly = true)
     public List<Map<String, Object>> openDebts(Long projectId, Long personId) {
-        if (projectId == null) throw new IllegalArgumentException("projectId is required.");
+        if (projectId == null) throw new IllegalArgumentException("شناسه پروژه الزامی است.");
 
-        // open debt = total - covered > 0
-        // total = sum(qnt*unit_price) from debts_detail
-        // covered = sum(covered_amount) from transaction_tracks
         String sql = """
             select
                 dh.id as debt_id,
@@ -184,6 +196,58 @@ public class DebtService {
         return jdbcTemplate.queryForList(sql, projectId, personId, personId);
     }
 
+    // ---------------- ALL DEBTS ----------------
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> getAllDebts() {
+
+        String sql = """
+        select
+            dh.id as debt_id,
+            dh.project_id,
+            dh.person_id,
+            dh.date_registered,
+            dh.date_due,
+
+            coalesce(
+                sum(cast(dd.qnt as decimal(18,3)) * cast(dd.unit_price as decimal(18,0))),
+                0
+            ) as total_amount,
+
+            coalesce(tt.covered, 0) as covered_amount,
+
+            (
+                coalesce(
+                    sum(cast(dd.qnt as decimal(18,3)) * cast(dd.unit_price as decimal(18,0))),
+                    0
+                ) - coalesce(tt.covered, 0)
+            ) as remaining_amount
+
+        from debts_header dh
+        join debts_detail dd
+            on dd.debt_header_id = dh.id
+
+        left join (
+            select
+                debt_header_id,
+                coalesce(sum(covered_amount), 0) as covered
+            from transaction_tracks
+            group by debt_header_id
+        ) tt on tt.debt_header_id = dh.id
+
+        group by
+            dh.id,
+            dh.project_id,
+            dh.person_id,
+            dh.date_registered,
+            dh.date_due,
+            tt.covered
+
+        order by dh.date_registered desc, dh.id desc
+        """;
+
+        return jdbcTemplate.queryForList(sql);
+    }
+
     // ---------------- helpers ----------------
 
     private void applyHeader(DebtHeader header,
@@ -193,15 +257,16 @@ public class DebtService {
                              java.time.LocalDateTime dateRegistered,
                              String dsc) {
 
-        if (projectId == null) throw new IllegalArgumentException("projectId is required.");
-        if (personId == null) throw new IllegalArgumentException("personId is required.");
-        if (dateDue == null) throw new IllegalArgumentException("dateDue is required.");
-        if (dateRegistered == null) throw new IllegalArgumentException("dateRegistered is required.");
+        if (projectId == null) throw new IllegalArgumentException("پروژه الزامی است.");
+        if (personId == null) throw new IllegalArgumentException("شخص الزامی است.");
+        if (dateDue == null) throw new IllegalArgumentException("تاریخ سررسید الزامی است.");
+        if (dateRegistered == null) throw new IllegalArgumentException("تاریخ ثبت الزامی است.");
 
         Project project = projectRepository.findById(projectId)
-                .orElseThrow(() -> new IllegalArgumentException("Project not found: " + projectId));
+                .orElseThrow(() -> new IllegalArgumentException("پروژه مورد نظر یافت نشد. (شناسه: " + projectId + ")"));
+
         Person person = personRepository.findById(personId)
-                .orElseThrow(() -> new IllegalArgumentException("Person not found: " + personId));
+                .orElseThrow(() -> new IllegalArgumentException("شخص مورد نظر یافت نشد. (شناسه: " + personId + ")"));
 
         header.setProject(project);
         header.setPerson(person);
@@ -211,19 +276,31 @@ public class DebtService {
     }
 
     private void saveLines(DebtHeader header, List<DebtLineRequest> lines) {
-        // prevent duplicate items in request (also DB unique will fail)
+        if (lines == null || lines.isEmpty()) {
+            throw new IllegalArgumentException("حداقل یک ردیف برای بدهی الزامی است.");
+        }
+
+        // جلوگیری از تکراری بودن کالا/خدمت در درخواست
         Set<Long> itemIds = new HashSet<>();
         for (DebtLineRequest l : lines) {
+            if (l == null) throw new IllegalArgumentException("یک ردیف نامعتبر در لیست ردیف‌ها وجود دارد.");
+            if (l.itemId() == null) throw new IllegalArgumentException("کالا/خدمت در ردیف بدهی الزامی است.");
             if (!itemIds.add(l.itemId())) {
-                throw new IllegalArgumentException("Duplicate item in debt lines: itemId=" + l.itemId());
+                throw new IllegalArgumentException("کالا/خدمت در ردیف‌های بدهی تکراری است. (شناسه کالا/خدمت: " + l.itemId() + ")");
             }
+            if (l.unitId() == null) throw new IllegalArgumentException("واحد در ردیف بدهی الزامی است.");
+            if (l.qnt() == null || l.qnt().compareTo(BigDecimal.ZERO) <= 0)
+                throw new IllegalArgumentException("مقدار (qnt) باید بزرگتر از صفر باشد.");
+            if (l.unitPrice() == null || l.unitPrice().compareTo(BigDecimal.ZERO) < 0)
+                throw new IllegalArgumentException("قیمت واحد نمی‌تواند منفی باشد.");
         }
 
         for (DebtLineRequest l : lines) {
             Item item = itemRepository.findById(l.itemId())
-                    .orElseThrow(() -> new IllegalArgumentException("Item not found: " + l.itemId()));
+                    .orElseThrow(() -> new IllegalArgumentException("کالا/خدمت مورد نظر یافت نشد. (شناسه: " + l.itemId() + ")"));
+
             Unit unit = unitRepository.findById(l.unitId())
-                    .orElseThrow(() -> new IllegalArgumentException("Unit not found: " + l.unitId()));
+                    .orElseThrow(() -> new IllegalArgumentException("واحد مورد نظر یافت نشد. (شناسه: " + l.unitId() + ")"));
 
             DebtDetail d = new DebtDetail();
             d.setDebtHeader(header);
@@ -327,55 +404,8 @@ public class DebtService {
         return t.isEmpty() ? null : t;
     }
 
-    @Transactional(readOnly = true)
-    public List<Map<String, Object>> getAllDebts() {
-
-        String sql = """
-        select
-            dh.id as debt_id,
-            dh.project_id,
-            dh.person_id,
-            dh.date_registered,
-            dh.date_due,
-
-            coalesce(
-                sum(cast(dd.qnt as decimal(18,3)) * cast(dd.unit_price as decimal(18,0))),
-                0
-            ) as total_amount,
-
-            coalesce(tt.covered, 0) as covered_amount,
-
-            (
-                coalesce(
-                    sum(cast(dd.qnt as decimal(18,3)) * cast(dd.unit_price as decimal(18,0))),
-                    0
-                ) - coalesce(tt.covered, 0)
-            ) as remaining_amount
-
-        from debts_header dh
-        join debts_detail dd
-            on dd.debt_header_id = dh.id
-
-        left join (
-            select
-                debt_header_id,
-                coalesce(sum(covered_amount), 0) as covered
-            from transaction_tracks
-            group by debt_header_id
-        ) tt on tt.debt_header_id = dh.id
-
-        group by
-            dh.id,
-            dh.project_id,
-            dh.person_id,
-            dh.date_registered,
-            dh.date_due,
-            tt.covered
-
-        order by dh.date_registered desc, dh.id desc
-        """;
-
-        return jdbcTemplate.queryForList(sql);
+    private String fmt(BigDecimal v) {
+        if (v == null) return "0";
+        return v.stripTrailingZeros().toPlainString();
     }
-
 }

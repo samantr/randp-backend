@@ -15,6 +15,8 @@ import java.util.List;
 @RequestMapping("/api/v1")
 public class DocumentController {
 
+    private static final long MAX_BYTES = 10L * 1024 * 1024; // 10MB
+
     private final DocumentService documentService;
 
     public DocumentController(DocumentService documentService) {
@@ -28,14 +30,24 @@ public class DocumentController {
                                                   @RequestPart("file") MultipartFile file,
                                                   @RequestPart(value = "dsc", required = false) String dsc) throws IOException {
 
-        final long MAX = 10L * 1024 * 1024; // 10MB
-        if (file.getBytes().length > MAX) {
+        if (transactionId == null) {
+            throw new IllegalArgumentException("شناسه پرداخت الزامی است.");
+        }
+        if (file == null) {
+            throw new IllegalArgumentException("فایل ارسال نشده است.");
+        }
+        if (file.isEmpty() || file.getSize() == 0) {
+            throw new IllegalArgumentException("فایل خالی است.");
+        }
+        if (file.getSize() > MAX_BYTES) {
             throw new IllegalArgumentException("حداکثر حجم فایل 10 مگابایت است.");
         }
 
+        byte[] bytes = file.getBytes();
+
         Long docId = documentService.uploadTransactionDoc(
                 transactionId,
-                file.getBytes(),
+                bytes,
                 safeName(file.getOriginalFilename()),
                 safe(file.getContentType()),
                 safe(dsc)
@@ -63,7 +75,7 @@ public class DocumentController {
         }
 
         return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + safeName(filename) + "\"")
                 .contentType(mt)
                 .body(doc.getDoc());
     }
@@ -81,13 +93,24 @@ public class DocumentController {
                                            @RequestPart("file") MultipartFile file,
                                            @RequestPart(value = "dsc", required = false) String dsc) throws IOException {
 
-        final long MAX = 10L * 1024 * 1024; // 10MB
-        if (file.getBytes().length > MAX) {
+        if (debtId == null) {
+            throw new IllegalArgumentException("شناسه بدهی الزامی است.");
+        }
+        if (file == null) {
+            throw new IllegalArgumentException("فایل ارسال نشده است.");
+        }
+        if (file.isEmpty() || file.getSize() == 0) {
+            throw new IllegalArgumentException("فایل خالی است.");
+        }
+        if (file.getSize() > MAX_BYTES) {
             throw new IllegalArgumentException("حداکثر حجم فایل 10 مگابایت است.");
         }
+
+        byte[] bytes = file.getBytes();
+
         Long docId = documentService.uploadDebtDoc(
                 debtId,
-                file.getBytes(),
+                bytes,
                 safeName(file.getOriginalFilename()),
                 safe(file.getContentType()),
                 safe(dsc)
@@ -115,7 +138,7 @@ public class DocumentController {
         }
 
         return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + safeName(filename) + "\"")
                 .contentType(mt)
                 .body(doc.getDoc());
     }
@@ -135,6 +158,7 @@ public class DocumentController {
     private String safeName(String s) {
         String t = safe(s);
         if (t == null) return null;
-        return t.replace("\"", "'");
+        // avoid breaking header
+        return t.replace("\"", "'").replace(";", "_");
     }
 }

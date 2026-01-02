@@ -1,16 +1,18 @@
 package com.app.service;
 
 import com.app.dto.transactiontrack.*;
-import com.app.model.*;
-import com.app.repository.*;
+import com.app.model.DebtHeader;
+import com.app.model.Transaction;
+import com.app.model.TransactionTrack;
+import com.app.repository.DebtHeaderRepository;
+import com.app.repository.TransactionRepository;
+import com.app.repository.TransactionTrackRepository;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.sql.Date;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -36,36 +38,35 @@ public class TransactionTrackService {
 
     @Transactional
     public AllocationResponse allocate(Long debtId, AllocationCreateRequest req) {
-        if (debtId == null) throw new IllegalArgumentException("debtId is required.");
-        if (req.transactionId() == null) throw new IllegalArgumentException("transactionId is required.");
+        if (debtId == null) throw new IllegalArgumentException("شناسه بدهی الزامی است.");
+        if (req == null) throw new IllegalArgumentException("اطلاعات تخصیص ارسال نشده است.");
+        if (req.transactionId() == null) throw new IllegalArgumentException("شناسه پرداخت الزامی است.");
         validateAmount(req.coveredAmount());
 
         DebtHeader debt = debtHeaderRepository.findById(debtId)
-                .orElseThrow(() -> new IllegalArgumentException("Debt not found: " + debtId));
+                .orElseThrow(() -> new IllegalArgumentException("بدهی مورد نظر یافت نشد. (شناسه: " + debtId + ")"));
 
         Transaction tx = transactionRepository.findById(req.transactionId())
-                .orElseThrow(() -> new IllegalArgumentException("Transaction not found: " + req.transactionId()));
+                .orElseThrow(() -> new IllegalArgumentException("پرداخت مورد نظر یافت نشد. (شناسه: " + req.transactionId() + ")"));
 
-        //assertSameProject(debt, tx);
-        assertSamePersonForAllocation(debt, tx); // ✅ NEW VALIDATION
+        assertSamePersonForAllocation(debt, tx);
 
         if (trackRepository.existsByDebtHeader_IdAndTransaction_Id(debtId, req.transactionId())) {
-            throw new IllegalArgumentException("This transaction is already allocated to this debt.");
+            throw new IllegalArgumentException("این پرداخت قبلاً برای این بدهی تخصیص داده شده است.");
         }
 
-        // validate against remaining
         BigDecimal debtTotal = getDebtTotal(debtId);
         BigDecimal debtCovered = nz(trackRepository.sumCoveredByDebt(debtId));
         BigDecimal debtRemaining = debtTotal.subtract(debtCovered);
         if (req.coveredAmount().compareTo(debtRemaining) > 0) {
-            throw new IllegalArgumentException("Covered amount exceeds debt remaining. Remaining: " + debtRemaining);
+            throw new IllegalArgumentException("مبلغ تخصیص از مانده بدهی بیشتر است. مانده قابل تخصیص: " + fmt(debtRemaining));
         }
 
         BigDecimal txTotal = nz(tx.getAmountPaid());
         BigDecimal txCovered = nz(trackRepository.sumCoveredByTransaction(req.transactionId()));
         BigDecimal txRemaining = txTotal.subtract(txCovered);
         if (req.coveredAmount().compareTo(txRemaining) > 0) {
-            throw new IllegalArgumentException("Covered amount exceeds transaction remaining. Remaining: " + txRemaining);
+            throw new IllegalArgumentException("مبلغ تخصیص از مانده پرداخت بیشتر است. مانده قابل تخصیص: " + fmt(txRemaining));
         }
 
         TransactionTrack track = new TransactionTrack();
@@ -78,7 +79,7 @@ public class TransactionTrackService {
             TransactionTrack saved = trackRepository.save(track);
             return toResponse(saved);
         } catch (DataIntegrityViolationException e) {
-            throw new IllegalArgumentException("Allocation could not be saved (DB constraint).");
+            throw new IllegalArgumentException("ثبت تخصیص انجام نشد. احتمالاً این تخصیص تکراری است یا محدودیت دیتابیس وجود دارد.");
         }
     }
 
@@ -86,36 +87,35 @@ public class TransactionTrackService {
 
     @Transactional
     public AllocationResponse allocateFromTransaction(Long txId, AllocationFromTransactionCreateRequest req) {
-        if (txId == null) throw new IllegalArgumentException("transactionId is required.");
-        if (req.debtId() == null) throw new IllegalArgumentException("debtId is required.");
+        if (txId == null) throw new IllegalArgumentException("شناسه پرداخت الزامی است.");
+        if (req == null) throw new IllegalArgumentException("اطلاعات تخصیص ارسال نشده است.");
+        if (req.debtId() == null) throw new IllegalArgumentException("شناسه بدهی الزامی است.");
         validateAmount(req.coveredAmount());
 
         Transaction tx = transactionRepository.findById(txId)
-                .orElseThrow(() -> new IllegalArgumentException("Transaction not found: " + txId));
+                .orElseThrow(() -> new IllegalArgumentException("پرداخت مورد نظر یافت نشد. (شناسه: " + txId + ")"));
 
         DebtHeader debt = debtHeaderRepository.findById(req.debtId())
-                .orElseThrow(() -> new IllegalArgumentException("Debt not found: " + req.debtId()));
+                .orElseThrow(() -> new IllegalArgumentException("بدهی مورد نظر یافت نشد. (شناسه: " + req.debtId() + ")"));
 
-        //assertSameProject(debt, tx);
-        assertSamePersonForAllocation(debt, tx); // ✅ NEW VALIDATION
+        assertSamePersonForAllocation(debt, tx);
 
         if (trackRepository.existsByDebtHeader_IdAndTransaction_Id(req.debtId(), txId)) {
-            throw new IllegalArgumentException("This debt is already allocated to this transaction.");
+            throw new IllegalArgumentException("این بدهی قبلاً برای این پرداخت تخصیص داده شده است.");
         }
 
-        // validate remaining
         BigDecimal debtTotal = getDebtTotal(req.debtId());
         BigDecimal debtCovered = nz(trackRepository.sumCoveredByDebt(req.debtId()));
         BigDecimal debtRemaining = debtTotal.subtract(debtCovered);
         if (req.coveredAmount().compareTo(debtRemaining) > 0) {
-            throw new IllegalArgumentException("Covered amount exceeds debt remaining. Remaining: " + debtRemaining);
+            throw new IllegalArgumentException("مبلغ تخصیص از مانده بدهی بیشتر است. مانده قابل تخصیص: " + fmt(debtRemaining));
         }
 
         BigDecimal txTotal = nz(tx.getAmountPaid());
         BigDecimal txCovered = nz(trackRepository.sumCoveredByTransaction(txId));
         BigDecimal txRemaining = txTotal.subtract(txCovered);
         if (req.coveredAmount().compareTo(txRemaining) > 0) {
-            throw new IllegalArgumentException("Covered amount exceeds transaction remaining. Remaining: " + txRemaining);
+            throw new IllegalArgumentException("مبلغ تخصیص از مانده پرداخت بیشتر است. مانده قابل تخصیص: " + fmt(txRemaining));
         }
 
         TransactionTrack track = new TransactionTrack();
@@ -128,7 +128,7 @@ public class TransactionTrackService {
             TransactionTrack saved = trackRepository.save(track);
             return toResponse(saved);
         } catch (DataIntegrityViolationException e) {
-            throw new IllegalArgumentException("Allocation could not be saved (DB constraint).");
+            throw new IllegalArgumentException("ثبت تخصیص انجام نشد. احتمالاً این تخصیص تکراری است یا محدودیت دیتابیس وجود دارد.");
         }
     }
 
@@ -136,14 +136,14 @@ public class TransactionTrackService {
 
     @Transactional(readOnly = true)
     public List<AllocationResponse> listByDebt(Long debtId) {
-        if (debtId == null) throw new IllegalArgumentException("debtId is required.");
+        if (debtId == null) throw new IllegalArgumentException("شناسه بدهی الزامی است.");
         return trackRepository.findByDebtHeader_IdOrderByIdDesc(debtId)
                 .stream().map(this::toResponse).toList();
     }
 
     @Transactional(readOnly = true)
     public List<AllocationResponse> listByTransaction(Long txId) {
-        if (txId == null) throw new IllegalArgumentException("transactionId is required.");
+        if (txId == null) throw new IllegalArgumentException("شناسه پرداخت الزامی است.");
         return trackRepository.findByTransaction_IdOrderByIdDesc(txId)
                 .stream().map(this::toResponse).toList();
     }
@@ -152,14 +152,14 @@ public class TransactionTrackService {
 
     @Transactional
     public void delete(Long debtId, Long allocationId) {
-        if (debtId == null) throw new IllegalArgumentException("debtId is required.");
-        if (allocationId == null) throw new IllegalArgumentException("allocationId is required.");
+        if (debtId == null) throw new IllegalArgumentException("شناسه بدهی الزامی است.");
+        if (allocationId == null) throw new IllegalArgumentException("شناسه تخصیص الزامی است.");
 
         TransactionTrack tr = trackRepository.findById(allocationId)
-                .orElseThrow(() -> new IllegalArgumentException("Allocation not found: " + allocationId));
+                .orElseThrow(() -> new IllegalArgumentException("تخصیص مورد نظر یافت نشد. (شناسه: " + allocationId + ")"));
 
         if (!tr.getDebtHeader().getId().equals(debtId)) {
-            throw new IllegalArgumentException("Allocation does not belong to this debt.");
+            throw new IllegalArgumentException("این تخصیص متعلق به این بدهی نیست.");
         }
 
         trackRepository.delete(tr);
@@ -167,14 +167,14 @@ public class TransactionTrackService {
 
     @Transactional
     public void deleteByTransaction(Long txId, Long allocationId) {
-        if (txId == null) throw new IllegalArgumentException("transactionId is required.");
-        if (allocationId == null) throw new IllegalArgumentException("allocationId is required.");
+        if (txId == null) throw new IllegalArgumentException("شناسه پرداخت الزامی است.");
+        if (allocationId == null) throw new IllegalArgumentException("شناسه تخصیص الزامی است.");
 
         TransactionTrack tr = trackRepository.findById(allocationId)
-                .orElseThrow(() -> new IllegalArgumentException("Allocation not found: " + allocationId));
+                .orElseThrow(() -> new IllegalArgumentException("تخصیص مورد نظر یافت نشد. (شناسه: " + allocationId + ")"));
 
         if (!tr.getTransaction().getId().equals(txId)) {
-            throw new IllegalArgumentException("Allocation does not belong to this transaction.");
+            throw new IllegalArgumentException("این تخصیص متعلق به این پرداخت نیست.");
         }
 
         trackRepository.delete(tr);
@@ -184,46 +184,43 @@ public class TransactionTrackService {
 
     @Transactional
     public AllocationResponse updateFromDebt(Long debtId, Long allocationId, AllocationUpdateRequest req) {
-        if (debtId == null) throw new IllegalArgumentException("debtId is required.");
-        if (allocationId == null) throw new IllegalArgumentException("allocationId is required.");
-        if (req.transactionId() == null) throw new IllegalArgumentException("transactionId is required.");
+        if (debtId == null) throw new IllegalArgumentException("شناسه بدهی الزامی است.");
+        if (allocationId == null) throw new IllegalArgumentException("شناسه تخصیص الزامی است.");
+        if (req == null) throw new IllegalArgumentException("اطلاعات ویرایش تخصیص ارسال نشده است.");
+        if (req.transactionId() == null) throw new IllegalArgumentException("شناسه پرداخت الزامی است.");
         validateAmount(req.coveredAmount());
 
         TransactionTrack existing = trackRepository.findById(allocationId)
-                .orElseThrow(() -> new IllegalArgumentException("Allocation not found: " + allocationId));
+                .orElseThrow(() -> new IllegalArgumentException("تخصیص مورد نظر یافت نشد. (شناسه: " + allocationId + ")"));
 
         if (!existing.getDebtHeader().getId().equals(debtId)) {
-            throw new IllegalArgumentException("Allocation does not belong to this debt.");
+            throw new IllegalArgumentException("این تخصیص متعلق به این بدهی نیست.");
         }
 
         DebtHeader debt = existing.getDebtHeader();
 
         Transaction newTx = transactionRepository.findById(req.transactionId())
-                .orElseThrow(() -> new IllegalArgumentException("Transaction not found: " + req.transactionId()));
+                .orElseThrow(() -> new IllegalArgumentException("پرداخت مورد نظر یافت نشد. (شناسه: " + req.transactionId() + ")"));
 
-        //assertSameProject(debt, newTx);
-        assertSamePersonForAllocation(debt, newTx); // ✅ NEW VALIDATION
+        assertSamePersonForAllocation(debt, newTx);
 
-        // prevent duplicate pair (debtId + txId) except itself
         Long oldTxId = existing.getTransaction().getId();
         if (!oldTxId.equals(req.transactionId())
                 && trackRepository.existsByDebtHeader_IdAndTransaction_Id(debtId, req.transactionId())) {
-            throw new IllegalArgumentException("This transaction is already allocated to this debt.");
+            throw new IllegalArgumentException("این پرداخت قبلاً برای این بدهی تخصیص داده شده است.");
         }
 
         BigDecimal oldAmount = nz(existing.getCoveredAmount());
         BigDecimal newAmount = req.coveredAmount();
 
-        // debt remaining excluding old allocation
         BigDecimal debtTotal = getDebtTotal(debtId);
         BigDecimal debtCovered = nz(trackRepository.sumCoveredByDebt(debtId));
         BigDecimal debtCoveredExcludingOld = debtCovered.subtract(oldAmount);
         BigDecimal debtRemainingForEdit = debtTotal.subtract(debtCoveredExcludingOld);
         if (newAmount.compareTo(debtRemainingForEdit) > 0) {
-            throw new IllegalArgumentException("Covered amount exceeds debt remaining. Remaining: " + debtRemainingForEdit);
+            throw new IllegalArgumentException("مبلغ تخصیص از مانده بدهی بیشتر است. مانده قابل تخصیص: " + fmt(debtRemainingForEdit));
         }
 
-        // transaction remaining excluding old allocation only if old tx == new tx
         BigDecimal txTotal = nz(newTx.getAmountPaid());
         BigDecimal txCovered = nz(trackRepository.sumCoveredByTransaction(req.transactionId()));
         BigDecimal txCoveredExcludingOld = txCovered;
@@ -232,7 +229,7 @@ public class TransactionTrackService {
         }
         BigDecimal txRemainingForEdit = txTotal.subtract(txCoveredExcludingOld);
         if (newAmount.compareTo(txRemainingForEdit) > 0) {
-            throw new IllegalArgumentException("Covered amount exceeds transaction remaining. Remaining: " + txRemainingForEdit);
+            throw new IllegalArgumentException("مبلغ تخصیص از مانده پرداخت بیشتر است. مانده قابل تخصیص: " + fmt(txRemainingForEdit));
         }
 
         existing.setTransaction(newTx);
@@ -242,7 +239,7 @@ public class TransactionTrackService {
         try {
             return toResponse(trackRepository.save(existing));
         } catch (DataIntegrityViolationException e) {
-            throw new IllegalArgumentException("Allocation could not be saved (DB constraint).");
+            throw new IllegalArgumentException("ویرایش تخصیص انجام نشد. احتمالاً این تخصیص تکراری است یا محدودیت دیتابیس وجود دارد.");
         }
     }
 
@@ -250,45 +247,43 @@ public class TransactionTrackService {
 
     @Transactional
     public AllocationResponse updateFromTransaction(Long txId, Long allocationId, AllocationFromTransactionUpdateRequest req) {
-        if (txId == null) throw new IllegalArgumentException("transactionId is required.");
-        if (allocationId == null) throw new IllegalArgumentException("allocationId is required.");
-        if (req.debtId() == null) throw new IllegalArgumentException("debtId is required.");
+        if (txId == null) throw new IllegalArgumentException("شناسه پرداخت الزامی است.");
+        if (allocationId == null) throw new IllegalArgumentException("شناسه تخصیص الزامی است.");
+        if (req == null) throw new IllegalArgumentException("اطلاعات ویرایش تخصیص ارسال نشده است.");
+        if (req.debtId() == null) throw new IllegalArgumentException("شناسه بدهی الزامی است.");
         validateAmount(req.coveredAmount());
 
         TransactionTrack existing = trackRepository.findById(allocationId)
-                .orElseThrow(() -> new IllegalArgumentException("Allocation not found: " + allocationId));
+                .orElseThrow(() -> new IllegalArgumentException("تخصیص مورد نظر یافت نشد. (شناسه: " + allocationId + ")"));
 
         if (!existing.getTransaction().getId().equals(txId)) {
-            throw new IllegalArgumentException("Allocation does not belong to this transaction.");
+            throw new IllegalArgumentException("این تخصیص متعلق به این پرداخت نیست.");
         }
 
         Transaction tx = existing.getTransaction();
 
         DebtHeader newDebt = debtHeaderRepository.findById(req.debtId())
-                .orElseThrow(() -> new IllegalArgumentException("Debt not found: " + req.debtId()));
+                .orElseThrow(() -> new IllegalArgumentException("بدهی مورد نظر یافت نشد. (شناسه: " + req.debtId() + ")"));
 
-        //assertSameProject(newDebt, tx);
-        assertSamePersonForAllocation(newDebt, tx); // ✅ NEW VALIDATION
+        assertSamePersonForAllocation(newDebt, tx);
 
         Long oldDebtId = existing.getDebtHeader().getId();
         if (!oldDebtId.equals(req.debtId())
                 && trackRepository.existsByDebtHeader_IdAndTransaction_Id(req.debtId(), txId)) {
-            throw new IllegalArgumentException("This debt is already allocated to this transaction.");
+            throw new IllegalArgumentException("این بدهی قبلاً برای این پرداخت تخصیص داده شده است.");
         }
 
         BigDecimal oldAmount = nz(existing.getCoveredAmount());
         BigDecimal newAmount = req.coveredAmount();
 
-        // transaction remaining excluding old allocation
         BigDecimal txTotal = nz(tx.getAmountPaid());
         BigDecimal txCovered = nz(trackRepository.sumCoveredByTransaction(txId));
         BigDecimal txCoveredExcludingOld = txCovered.subtract(oldAmount);
         BigDecimal txRemainingForEdit = txTotal.subtract(txCoveredExcludingOld);
         if (newAmount.compareTo(txRemainingForEdit) > 0) {
-            throw new IllegalArgumentException("Covered amount exceeds transaction remaining. Remaining: " + txRemainingForEdit);
+            throw new IllegalArgumentException("مبلغ تخصیص از مانده پرداخت بیشتر است. مانده قابل تخصیص: " + fmt(txRemainingForEdit));
         }
 
-        // debt remaining excluding old allocation only if old debt == new debt
         BigDecimal debtTotal = getDebtTotal(req.debtId());
         BigDecimal debtCovered = nz(trackRepository.sumCoveredByDebt(req.debtId()));
         BigDecimal debtCoveredExcludingOld = debtCovered;
@@ -297,7 +292,7 @@ public class TransactionTrackService {
         }
         BigDecimal debtRemainingForEdit = debtTotal.subtract(debtCoveredExcludingOld);
         if (newAmount.compareTo(debtRemainingForEdit) > 0) {
-            throw new IllegalArgumentException("Covered amount exceeds debt remaining. Remaining: " + debtRemainingForEdit);
+            throw new IllegalArgumentException("مبلغ تخصیص از مانده بدهی بیشتر است. مانده قابل تخصیص: " + fmt(debtRemainingForEdit));
         }
 
         existing.setDebtHeader(newDebt);
@@ -307,7 +302,7 @@ public class TransactionTrackService {
         try {
             return toResponse(trackRepository.save(existing));
         } catch (DataIntegrityViolationException e) {
-            throw new IllegalArgumentException("Allocation could not be saved (DB constraint).");
+            throw new IllegalArgumentException("ویرایش تخصیص انجام نشد. احتمالاً این تخصیص تکراری است یا محدودیت دیتابیس وجود دارد.");
         }
     }
 
@@ -315,25 +310,23 @@ public class TransactionTrackService {
 
     @Transactional(readOnly = true)
     public List<TransactionCandidateResponse> transactionCandidatesForDebt(Long debtId, Long allocationId) {
-        if (debtId == null) throw new IllegalArgumentException("debtId is required.");
+        if (debtId == null) throw new IllegalArgumentException("شناسه بدهی الزامی است.");
 
         DebtHeader debt = debtHeaderRepository.findById(debtId)
-                .orElseThrow(() -> new IllegalArgumentException("Debt not found: " + debtId));
+                .orElseThrow(() -> new IllegalArgumentException("بدهی مورد نظر یافت نشد. (شناسه: " + debtId + ")"));
 
-        // if editing, we add old covered back to editableRemaining for its linked tx
         Long editingTxId = null;
         BigDecimal editingOldAmount = BigDecimal.ZERO;
         if (allocationId != null) {
             TransactionTrack tr = trackRepository.findById(allocationId)
-                    .orElseThrow(() -> new IllegalArgumentException("Allocation not found: " + allocationId));
+                    .orElseThrow(() -> new IllegalArgumentException("تخصیص مورد نظر یافت نشد. (شناسه: " + allocationId + ")"));
             if (!tr.getDebtHeader().getId().equals(debtId)) {
-                throw new IllegalArgumentException("Allocation does not belong to this debt.");
+                throw new IllegalArgumentException("این تخصیص متعلق به این بدهی نیست.");
             }
             editingTxId = tr.getTransaction().getId();
             editingOldAmount = nz(tr.getCoveredAmount());
         }
 
-        // ✅ FILTER by person rule: t.to_person_id must match debt.person_id
         String sql = """
             select
                 t.id,
@@ -351,7 +344,6 @@ public class TransactionTrackService {
             order by t.date_registered desc, t.id desc
             """;
 
-        //Long projectId = debt.getProject().getId();
         Long debtPersonId = debt.getPerson().getId();
 
         Long finalEditingTxId = editingTxId;
@@ -378,25 +370,23 @@ public class TransactionTrackService {
 
     @Transactional(readOnly = true)
     public List<DebtCandidateResponse> debtCandidatesForTransaction(Long txId, Long allocationId) {
-        if (txId == null) throw new IllegalArgumentException("transactionId is required.");
+        if (txId == null) throw new IllegalArgumentException("شناسه پرداخت الزامی است.");
 
         Transaction tx = transactionRepository.findById(txId)
-                .orElseThrow(() -> new IllegalArgumentException("Transaction not found: " + txId));
+                .orElseThrow(() -> new IllegalArgumentException("پرداخت مورد نظر یافت نشد. (شناسه: " + txId + ")"));
 
-        // if editing, add old covered back to editableRemaining for its linked debt
         Long editingDebtId = null;
         BigDecimal editingOldAmount = BigDecimal.ZERO;
         if (allocationId != null) {
             TransactionTrack tr = trackRepository.findById(allocationId)
-                    .orElseThrow(() -> new IllegalArgumentException("Allocation not found: " + allocationId));
+                    .orElseThrow(() -> new IllegalArgumentException("تخصیص مورد نظر یافت نشد. (شناسه: " + allocationId + ")"));
             if (!tr.getTransaction().getId().equals(txId)) {
-                throw new IllegalArgumentException("Allocation does not belong to this transaction.");
+                throw new IllegalArgumentException("این تخصیص متعلق به این پرداخت نیست.");
             }
             editingDebtId = tr.getDebtHeader().getId();
             editingOldAmount = nz(tr.getCoveredAmount());
         }
 
-        // ✅ FILTER by person rule: dh.person_id must match tx.to_person_id
         String sql = """
             select
                 dh.id as debt_id,
@@ -420,7 +410,6 @@ public class TransactionTrackService {
             order by dh.date_registered desc, dh.id desc
             """;
 
-        //Long projectId = tx.getProject().getId();
         Long txToPersonId = tx.getToPerson().getId();
 
         Long finalEditingDebtId = editingDebtId;
@@ -468,27 +457,17 @@ public class TransactionTrackService {
     }
 
     private void validateAmount(BigDecimal amount) {
-        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0)
-            throw new IllegalArgumentException("coveredAmount must be > 0.");
-    }
-
-    private void assertSameProject(DebtHeader debt, Transaction tx) {
-        Long debtProjectId = debt.getProject().getId();
-        Long txProjectId = tx.getProject().getId();
-        if (!debtProjectId.equals(txProjectId)) {
-            throw new IllegalArgumentException("Debt and transaction must belong to the same project.");
+        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("مبلغ تخصیص باید بزرگتر از صفر باشد.");
         }
     }
 
-    // ✅ NEW: person validation rule
     // Allocation allowed only if debt.person_id == tx.to_person_id
     private void assertSamePersonForAllocation(DebtHeader debt, Transaction tx) {
         Long debtPersonId = debt.getPerson().getId();
         Long txToPersonId = tx.getToPerson().getId();
         if (!debtPersonId.equals(txToPersonId)) {
-            throw new IllegalArgumentException(
-                    "Allocation is not allowed: debt person and transaction گیرنده (to_person) must be the same."
-            );
+            throw new IllegalArgumentException("تخصیص مجاز نیست؛ شخصِ بدهی باید با گیرنده پرداخت (to_person) یکسان باشد.");
         }
     }
 
@@ -502,11 +481,12 @@ public class TransactionTrackService {
         return v == null ? BigDecimal.ZERO : v;
     }
 
-    private LocalDate toLocalDate(Date d) {
-        return d == null ? null : d.toLocalDate();
-    }
-
     private LocalDateTime toLocalDateTime(java.sql.Timestamp ts) {
         return ts == null ? null : ts.toLocalDateTime();
+    }
+
+    private String fmt(BigDecimal v) {
+        if (v == null) return "0";
+        return v.stripTrailingZeros().toPlainString();
     }
 }

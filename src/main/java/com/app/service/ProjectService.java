@@ -22,9 +22,13 @@ public class ProjectService {
 
     @Transactional
     public ProjectResponse create(ProjectCreateRequest req) {
-        String title = req.title().trim();
+        if (req == null) throw new IllegalArgumentException("اطلاعات پروژه ارسال نشده است.");
+
+        String title = trimToNull(req.title());
+        if (title == null) throw new IllegalArgumentException("عنوان پروژه الزامی است.");
+
         if (projectRepository.existsByTitleIgnoreCase(title)) {
-            throw new IllegalArgumentException("Project title already exists.");
+            throw new IllegalArgumentException("این عنوان پروژه قبلاً ثبت شده است: " + title);
         }
 
         Project parent = resolveParent(req.parentId(), null);
@@ -39,8 +43,10 @@ public class ProjectService {
 
     @Transactional(readOnly = true)
     public ProjectResponse getById(Long id) {
+        if (id == null) throw new IllegalArgumentException("شناسه پروژه الزامی است.");
+
         Project p = projectRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Project not found: " + id));
+                .orElseThrow(() -> new IllegalArgumentException("پروژه یافت نشد. (شناسه: " + id + ")"));
         return toResponse(p);
     }
 
@@ -51,12 +57,17 @@ public class ProjectService {
 
     @Transactional
     public ProjectResponse update(Long id, ProjectUpdateRequest req) {
-        Project p = projectRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Project not found: " + id));
+        if (id == null) throw new IllegalArgumentException("شناسه پروژه الزامی است.");
+        if (req == null) throw new IllegalArgumentException("اطلاعات ویرایش پروژه ارسال نشده است.");
 
-        String title = req.title().trim();
+        Project p = projectRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("پروژه یافت نشد. (شناسه: " + id + ")"));
+
+        String title = trimToNull(req.title());
+        if (title == null) throw new IllegalArgumentException("عنوان پروژه الزامی است.");
+
         if (projectRepository.existsByTitleIgnoreCaseAndIdNot(title, id)) {
-            throw new IllegalArgumentException("Project title already exists.");
+            throw new IllegalArgumentException("این عنوان پروژه قبلاً ثبت شده است: " + title);
         }
 
         Project parent = resolveParent(req.parentId(), id);
@@ -70,23 +81,22 @@ public class ProjectService {
 
     @Transactional
     public void delete(Long id) {
-        Project p = projectRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Project not found: " + id));
+        if (id == null) throw new IllegalArgumentException("شناسه پروژه الزامی است.");
 
-        // has children? (self referenced)
+        Project p = projectRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("پروژه یافت نشد. (شناسه: " + id + ")"));
+
         if (projectRepository.countByParent_Id(id) > 0) {
-            throw new IllegalArgumentException("Cannot delete project: it has sub-projects.");
+            throw new IllegalArgumentException("امکان حذف پروژه وجود ندارد؛ این پروژه زیرپروژه دارد.");
         }
 
-        // referenced by transactions/debts?
         if (isProjectReferenced(id)) {
-            throw new IllegalArgumentException("Cannot delete project: referenced by transactions/debts.");
+            throw new IllegalArgumentException("امکان حذف پروژه وجود ندارد؛ برای این پروژه پرداخت یا بدهی ثبت شده است.");
         }
 
         projectRepository.delete(p);
     }
 
-    // ---------- Extra API: full tree ----------
     @Transactional(readOnly = true)
     public List<ProjectTreeNode> getTree() {
         List<Project> all = projectRepository.findAll();
@@ -101,32 +111,29 @@ public class ProjectService {
 
         for (Project p : all) {
             ProjectTreeNode node = map.get(p.getId());
-            if (node.parentId == null) {
-                roots.add(node);
-            } else {
+            if (node.parentId == null) roots.add(node);
+            else {
                 ProjectTreeNode parent = map.get(node.parentId);
                 if (parent != null) parent.children.add(node);
-                else roots.add(node); // fallback if parent row missing
+                else roots.add(node);
             }
         }
 
         return roots;
     }
 
-    // ---------- Helpers ----------
     private Project resolveParent(Long parentId, Long selfId) {
         if (parentId == null) return null;
 
         if (selfId != null && parentId.equals(selfId)) {
-            throw new IllegalArgumentException("Parent project cannot be itself.");
+            throw new IllegalArgumentException("پروژه نمی‌تواند والدِ خودش باشد.");
         }
 
         Project parent = projectRepository.findById(parentId)
-                .orElseThrow(() -> new IllegalArgumentException("Parent project not found: " + parentId));
+                .orElseThrow(() -> new IllegalArgumentException("پروژه والد یافت نشد. (شناسه: " + parentId + ")"));
 
-        // prevent cycle: selfId must not appear in parent's chain
         if (selfId != null && createsCycle(selfId, parent)) {
-            throw new IllegalArgumentException("Invalid parent: cycle detected.");
+            throw new IllegalArgumentException("انتخاب والد نامعتبر است؛ باعث ایجاد چرخه می‌شود.");
         }
 
         return parent;

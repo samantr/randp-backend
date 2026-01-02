@@ -36,11 +36,11 @@ public class DocumentService {
 
     @Transactional
     public Long uploadTransactionDoc(Long transactionId, byte[] bytes, String fileName, String contentType, String dsc) {
-        if (transactionId == null) throw new IllegalArgumentException("transactionId is required.");
-        if (bytes == null || bytes.length == 0) throw new IllegalArgumentException("file is empty.");
+        if (transactionId == null) throw new IllegalArgumentException("شناسه پرداخت الزامی است.");
+        if (bytes == null || bytes.length == 0) throw new IllegalArgumentException("فایل خالی است.");
 
         Transaction tx = transactionRepository.findById(transactionId)
-                .orElseThrow(() -> new IllegalArgumentException("Transaction not found: " + transactionId));
+                .orElseThrow(() -> new IllegalArgumentException("پرداخت مورد نظر یافت نشد. (شناسه: " + transactionId + ")"));
 
         TransactionDocument doc = new TransactionDocument();
         doc.setTransaction(tx);
@@ -54,7 +54,7 @@ public class DocumentService {
 
     @Transactional(readOnly = true)
     public List<DocumentMetaResponse> listTransactionDocs(Long transactionId) {
-        if (transactionId == null) throw new IllegalArgumentException("transactionId is required.");
+        if (transactionId == null) throw new IllegalArgumentException("شناسه پرداخت الزامی است.");
 
         return jdbcTemplate.query("""
                 select id,
@@ -80,16 +80,23 @@ public class DocumentService {
 
     @Transactional(readOnly = true)
     public TransactionDocument getTransactionDoc(Long docId) {
+        if (docId == null) throw new IllegalArgumentException("شناسه سند الزامی است.");
+
         return transactionDocumentRepository.findById(docId)
-                .orElseThrow(() -> new IllegalArgumentException("Transaction document not found: " + docId));
+                .orElseThrow(() -> new IllegalArgumentException("سند پرداخت یافت نشد. (شناسه: " + docId + ")"));
     }
 
     @Transactional
     public void deleteTransactionDoc(Long transactionId, Long docId) {
+        if (transactionId == null) throw new IllegalArgumentException("شناسه پرداخت الزامی است.");
+        if (docId == null) throw new IllegalArgumentException("شناسه سند الزامی است.");
+
         TransactionDocument doc = getTransactionDoc(docId);
+
         if (!doc.getTransaction().getId().equals(transactionId)) {
-            throw new IllegalArgumentException("Document does not belong to this transaction.");
+            throw new IllegalArgumentException("این سند متعلق به این پرداخت نیست.");
         }
+
         transactionDocumentRepository.delete(doc);
     }
 
@@ -97,11 +104,11 @@ public class DocumentService {
 
     @Transactional
     public Long uploadDebtDoc(Long debtId, byte[] bytes, String fileName, String contentType, String dsc) {
-        if (debtId == null) throw new IllegalArgumentException("debtId is required.");
-        if (bytes == null || bytes.length == 0) throw new IllegalArgumentException("file is empty.");
+        if (debtId == null) throw new IllegalArgumentException("شناسه بدهی الزامی است.");
+        if (bytes == null || bytes.length == 0) throw new IllegalArgumentException("فایل خالی است.");
 
         DebtHeader debt = debtHeaderRepository.findById(debtId)
-                .orElseThrow(() -> new IllegalArgumentException("Debt not found: " + debtId));
+                .orElseThrow(() -> new IllegalArgumentException("بدهی مورد نظر یافت نشد. (شناسه: " + debtId + ")"));
 
         DebtDocument doc = new DebtDocument();
         doc.setDebtHeader(debt);
@@ -115,7 +122,7 @@ public class DocumentService {
 
     @Transactional(readOnly = true)
     public List<DocumentMetaResponse> listDebtDocs(Long debtId) {
-        if (debtId == null) throw new IllegalArgumentException("debtId is required.");
+        if (debtId == null) throw new IllegalArgumentException("شناسه بدهی الزامی است.");
 
         return jdbcTemplate.query("""
                 select id,
@@ -141,16 +148,23 @@ public class DocumentService {
 
     @Transactional(readOnly = true)
     public DebtDocument getDebtDoc(Long docId) {
+        if (docId == null) throw new IllegalArgumentException("شناسه سند الزامی است.");
+
         return debtDocumentRepository.findById(docId)
-                .orElseThrow(() -> new IllegalArgumentException("Debt document not found: " + docId));
+                .orElseThrow(() -> new IllegalArgumentException("سند بدهی یافت نشد. (شناسه: " + docId + ")"));
     }
 
     @Transactional
     public void deleteDebtDoc(Long debtId, Long docId) {
+        if (debtId == null) throw new IllegalArgumentException("شناسه بدهی الزامی است.");
+        if (docId == null) throw new IllegalArgumentException("شناسه سند الزامی است.");
+
         DebtDocument doc = getDebtDoc(docId);
+
         if (!doc.getDebtHeader().getId().equals(debtId)) {
-            throw new IllegalArgumentException("Document does not belong to this debt.");
+            throw new IllegalArgumentException("این سند متعلق به این بدهی نیست.");
         }
+
         debtDocumentRepository.delete(doc);
     }
 

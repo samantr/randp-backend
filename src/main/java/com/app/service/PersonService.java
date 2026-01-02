@@ -26,15 +26,18 @@ public class PersonService {
 
     @Transactional
     public PersonResponse create(PersonCreateRequest req) {
+        if (req == null) throw new IllegalArgumentException("اطلاعات شخص ارسال نشده است.");
+
         validateBusiness(req.isLegal(), req.companyName(), req.name(), req.lastName());
 
         if (Boolean.TRUE.equals(req.isLegal())) {
-            if (personRepository.existsByIsLegalTrueAndCompanyNameIgnoreCase(req.companyName().trim())) {
-                throw new IllegalArgumentException("Company already exists (duplicate company_name).");
+            String company = req.companyName().trim();
+            if (personRepository.existsByIsLegalTrueAndCompanyNameIgnoreCase(company)) {
+                throw new IllegalArgumentException("این شرکت/سازمان قبلاً ثبت شده است.");
             }
         } else {
             if (personRepository.existsNatural(req.name(), req.lastName())) {
-                throw new IllegalArgumentException("Person already exists (duplicate name + last_name).");
+                throw new IllegalArgumentException("این شخص قبلاً ثبت شده است.");
             }
         }
 
@@ -45,8 +48,7 @@ public class PersonService {
             Person saved = personRepository.save(p);
             return toResponse(saved);
         } catch (DataIntegrityViolationException e) {
-            // catches CK_persons violations too (SQL constraint)
-            throw new IllegalArgumentException("Invalid person data (DB constraint violation).");
+            throw new IllegalArgumentException("ثبت شخص انجام نشد. لطفاً اطلاعات را بررسی کنید.");
         }
     }
 
@@ -57,25 +59,30 @@ public class PersonService {
 
     @Transactional(readOnly = true)
     public PersonResponse getById(Long id) {
+        if (id == null) throw new IllegalArgumentException("شناسه شخص الزامی است.");
+
         return toResponse(personRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Person not found: " + id)));
+                .orElseThrow(() -> new IllegalArgumentException("شخص یافت نشد. (شناسه: " + id + ")")));
     }
 
     @Transactional
     public PersonResponse update(Long id, PersonUpdateRequest req) {
+        if (id == null) throw new IllegalArgumentException("شناسه شخص الزامی است.");
+        if (req == null) throw new IllegalArgumentException("اطلاعات ویرایش شخص ارسال نشده است.");
+
         validateBusiness(req.isLegal(), req.companyName(), req.name(), req.lastName());
 
         Person p = personRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Person not found: " + id));
+                .orElseThrow(() -> new IllegalArgumentException("شخص یافت نشد. (شناسه: " + id + ")"));
 
         if (Boolean.TRUE.equals(req.isLegal())) {
             String company = req.companyName().trim();
             if (personRepository.existsByIsLegalTrueAndCompanyNameIgnoreCaseAndIdNot(company, id)) {
-                throw new IllegalArgumentException("Company already exists (duplicate company_name).");
+                throw new IllegalArgumentException("این شرکت/سازمان قبلاً ثبت شده است.");
             }
         } else {
             if (personRepository.existsNaturalExcludingId(req.name(), req.lastName(), id)) {
-                throw new IllegalArgumentException("Person already exists (duplicate name + last_name).");
+                throw new IllegalArgumentException("این شخص قبلاً ثبت شده است.");
             }
         }
 
@@ -85,20 +92,19 @@ public class PersonService {
             Person saved = personRepository.save(p);
             return toResponse(saved);
         } catch (DataIntegrityViolationException e) {
-            throw new IllegalArgumentException("Invalid person data (DB constraint violation).");
+            throw new IllegalArgumentException("ویرایش شخص انجام نشد. لطفاً اطلاعات را بررسی کنید.");
         }
     }
 
     @Transactional
     public void delete(Long id) {
-        Person p = personRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Person not found: " + id));
+        if (id == null) throw new IllegalArgumentException("شناسه شخص الزامی است.");
 
-        // Prevent delete if referenced by transactions or debts_header.
-        // transactions.from_person_id / to_person_id are FK -> persons :contentReference[oaicite:2]{index=2}
-        // debts_header.person_id is FK -> persons :contentReference[oaicite:3]{index=3}
+        Person p = personRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("شخص یافت نشد. (شناسه: " + id + ")"));
+
         if (isPersonReferenced(id)) {
-            throw new IllegalArgumentException("Cannot delete person: referenced by transactions/debts.");
+            throw new IllegalArgumentException("امکان حذف شخص وجود ندارد؛ برای این شخص بدهی یا پرداخت ثبت شده است.");
         }
 
         personRepository.delete(p);
@@ -108,8 +114,6 @@ public class PersonService {
     public Page<PersonResponse> search(String q, Pageable pageable) {
         return personRepository.search(q, pageable).map(this::toResponse);
     }
-
-    // ----------------- helpers -----------------
 
     private boolean isPersonReferenced(Long personId) {
         Integer txCount = jdbcTemplate.queryForObject(
@@ -124,20 +128,18 @@ public class PersonService {
     }
 
     private void validateBusiness(Boolean isLegal, String companyName, String name, String lastName) {
-        if (isLegal == null) throw new IllegalArgumentException("isLegal is required.");
+        if (isLegal == null) throw new IllegalArgumentException("نوع شخص (حقیقی/حقوقی) الزامی است.");
 
-        // Match CK_persons: legal => company_name not null; non-legal => company_name null :contentReference[oaicite:4]{index=4}
         if (isLegal) {
             if (companyName == null || companyName.trim().isEmpty()) {
-                throw new IllegalArgumentException("For legal persons, companyName is required.");
+                throw new IllegalArgumentException("برای شخص حقوقی، نام شرکت/سازمان الزامی است.");
             }
         } else {
             if (companyName != null && !companyName.trim().isEmpty()) {
-                throw new IllegalArgumentException("For natural persons, companyName must be null/empty.");
+                throw new IllegalArgumentException("برای شخص حقیقی، نام شرکت/سازمان نباید وارد شود.");
             }
-            // Practical rule (not DB): make sure at least one of name/lastName exists
             if ((name == null || name.trim().isEmpty()) && (lastName == null || lastName.trim().isEmpty())) {
-                throw new IllegalArgumentException("For natural persons, at least name or lastName is required.");
+                throw new IllegalArgumentException("برای شخص حقیقی، حداقل نام یا نام‌خانوادگی الزامی است.");
             }
         }
     }

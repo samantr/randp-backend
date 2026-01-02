@@ -18,10 +18,16 @@ public class UnitService {
     }
 
     public UnitResponse create(UnitCreateRequest req) {
-        if (repo.existsByTitleIgnoreCase(req.title())) {
-            throw new IllegalArgumentException("Unit title already exists: " + req.title());
+        if (req == null) throw new IllegalArgumentException("اطلاعات واحد ارسال نشده است.");
+
+        String title = trimToNull(req.title());
+        if (title == null) throw new IllegalArgumentException("عنوان واحد الزامی است.");
+
+        if (repo.existsByTitleIgnoreCase(title)) {
+            throw new IllegalArgumentException("این عنوان واحد قبلاً ثبت شده است: " + title);
         }
-        Unit u = new Unit(null, req.title().trim(), req.dsc());
+
+        Unit u = new Unit(null, title, trimToNull(req.dsc()));
         return toResponse(repo.save(u));
     }
 
@@ -30,33 +36,48 @@ public class UnitService {
     }
 
     public UnitResponse getById(Long id) {
+        if (id == null) throw new IllegalArgumentException("شناسه واحد الزامی است.");
+
         return toResponse(repo.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Unit not found: " + id)));
+                .orElseThrow(() -> new IllegalArgumentException("واحد یافت نشد. (شناسه: " + id + ")")));
     }
 
     @Transactional
     public UnitResponse update(Long id, UnitUpdateRequest req) {
+        if (id == null) throw new IllegalArgumentException("شناسه واحد الزامی است.");
+        if (req == null) throw new IllegalArgumentException("اطلاعات ویرایش واحد ارسال نشده است.");
+
         Unit u = repo.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Unit not found: " + id));
+                .orElseThrow(() -> new IllegalArgumentException("واحد یافت نشد. (شناسه: " + id + ")"));
 
-        // allow same title for same record, block duplicates for others
-        repo.findByTitleIgnoreCase(req.title())
+        String title = trimToNull(req.title());
+        if (title == null) throw new IllegalArgumentException("عنوان واحد الزامی است.");
+
+        repo.findByTitleIgnoreCase(title)
                 .filter(other -> !other.getId().equals(id))
-                .ifPresent(x -> { throw new IllegalArgumentException("Unit title already exists: " + req.title()); });
+                .ifPresent(x -> { throw new IllegalArgumentException("این عنوان واحد قبلاً ثبت شده است: " + title); });
 
-        u.setTitle(req.title().trim());
-        u.setDsc(req.dsc());
+        u.setTitle(title);
+        u.setDsc(trimToNull(req.dsc()));
         return toResponse(u);
     }
 
     public void delete(Long id) {
+        if (id == null) throw new IllegalArgumentException("شناسه واحد الزامی است.");
+
         if (!repo.existsById(id)) {
-            throw new IllegalArgumentException("Unit not found: " + id);
+            throw new IllegalArgumentException("واحد یافت نشد. (شناسه: " + id + ")");
         }
         repo.deleteById(id);
     }
 
     private UnitResponse toResponse(Unit u) {
         return new UnitResponse(u.getId(), u.getTitle(), u.getDsc());
+    }
+
+    private String trimToNull(String s) {
+        if (s == null) return null;
+        String t = s.trim();
+        return t.isEmpty() ? null : t;
     }
 }

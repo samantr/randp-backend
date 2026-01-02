@@ -22,20 +22,26 @@ public class ItemService {
     }
 
     public ItemResponse create(ItemCreateRequest req) {
-        String code = req.code().trim();
-        String title = req.title().trim();
+        if (req == null) throw new IllegalArgumentException("اطلاعات کالا/خدمت ارسال نشده است.");
+
+        String code = trimToNull(req.code());
+        String title = trimToNull(req.title());
+
+        if (code == null) throw new IllegalArgumentException("کد کالا/خدمت الزامی است.");
+        if (title == null) throw new IllegalArgumentException("عنوان کالا/خدمت الزامی است.");
+        if (req.categoryId() == null) throw new IllegalArgumentException("دسته‌بندی الزامی است.");
 
         if (repo.existsByCodeIgnoreCase(code)) {
-            throw new IllegalArgumentException("Item code already exists: " + code);
+            throw new IllegalArgumentException("این کد قبلاً ثبت شده است: " + code);
         }
         if (repo.existsByTitleIgnoreCase(title)) {
-            throw new IllegalArgumentException("Item title already exists: " + title);
+            throw new IllegalArgumentException("این عنوان قبلاً ثبت شده است: " + title);
         }
 
         ItemCategory category = categoryRepo.findById(req.categoryId())
-                .orElseThrow(() -> new IllegalArgumentException("Category not found: " + req.categoryId()));
+                .orElseThrow(() -> new IllegalArgumentException("دسته‌بندی یافت نشد. (شناسه: " + req.categoryId() + ")"));
 
-        Item item = new Item(null, category, code, title, req.dsc());
+        Item item = new Item(null, category, code, title, trimToNull(req.dsc()));
         return toResponse(repo.save(item));
     }
 
@@ -44,42 +50,54 @@ public class ItemService {
     }
 
     public ItemResponse getById(Long id) {
+        if (id == null) throw new IllegalArgumentException("شناسه کالا/خدمت الزامی است.");
+
         Item item = repo.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Item not found: " + id));
-        // Ensure category is available for response
+                .orElseThrow(() -> new IllegalArgumentException("کالا/خدمت یافت نشد. (شناسه: " + id + ")"));
+
+        // ensure category is loaded for response
         item.getCategory().getTitle();
         return toResponse(item);
     }
 
     @Transactional
     public ItemResponse update(Long id, ItemUpdateRequest req) {
-        Item item = repo.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Item not found: " + id));
+        if (id == null) throw new IllegalArgumentException("شناسه کالا/خدمت الزامی است.");
+        if (req == null) throw new IllegalArgumentException("اطلاعات ویرایش کالا/خدمت ارسال نشده است.");
 
-        String code = req.code().trim();
-        String title = req.title().trim();
+        Item item = repo.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("کالا/خدمت یافت نشد. (شناسه: " + id + ")"));
+
+        String code = trimToNull(req.code());
+        String title = trimToNull(req.title());
+
+        if (code == null) throw new IllegalArgumentException("کد کالا/خدمت الزامی است.");
+        if (title == null) throw new IllegalArgumentException("عنوان کالا/خدمت الزامی است.");
+        if (req.categoryId() == null) throw new IllegalArgumentException("دسته‌بندی الزامی است.");
 
         repo.findByCodeIgnoreCase(code)
                 .filter(other -> !other.getId().equals(id))
-                .ifPresent(x -> { throw new IllegalArgumentException("Item code already exists: " + code); });
+                .ifPresent(x -> { throw new IllegalArgumentException("این کد قبلاً ثبت شده است: " + code); });
 
         repo.findByTitleIgnoreCase(title)
                 .filter(other -> !other.getId().equals(id))
-                .ifPresent(x -> { throw new IllegalArgumentException("Item title already exists: " + title); });
+                .ifPresent(x -> { throw new IllegalArgumentException("این عنوان قبلاً ثبت شده است: " + title); });
 
         ItemCategory category = categoryRepo.findById(req.categoryId())
-                .orElseThrow(() -> new IllegalArgumentException("Category not found: " + req.categoryId()));
+                .orElseThrow(() -> new IllegalArgumentException("دسته‌بندی یافت نشد. (شناسه: " + req.categoryId() + ")"));
 
         item.setCategory(category);
         item.setCode(code);
         item.setTitle(title);
-        item.setDsc(req.dsc());
+        item.setDsc(trimToNull(req.dsc()));
         return toResponse(item);
     }
 
     public void delete(Long id) {
+        if (id == null) throw new IllegalArgumentException("شناسه کالا/خدمت الزامی است.");
+
         if (!repo.existsById(id)) {
-            throw new IllegalArgumentException("Item not found: " + id);
+            throw new IllegalArgumentException("کالا/خدمت یافت نشد. (شناسه: " + id + ")");
         }
         repo.deleteById(id);
     }
@@ -99,5 +117,11 @@ public class ItemService {
                 i.getTitle(),
                 i.getDsc()
         );
+    }
+
+    private String trimToNull(String s) {
+        if (s == null) return null;
+        String t = s.trim();
+        return t.isEmpty() ? null : t;
     }
 }

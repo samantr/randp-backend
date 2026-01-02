@@ -3,7 +3,9 @@ package com.app.controller;
 import com.app.dto.transactiontrack.*;
 import com.app.service.TransactionTrackService;
 import jakarta.validation.Valid;
-import org.springframework.http.*;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -18,40 +20,55 @@ public class TransactionAllocationsController {
         this.trackService = trackService;
     }
 
-    // POST /api/v1/transactions/{txId}/allocations
-    @PostMapping("/{txId}/allocations")
-    public ResponseEntity<AllocationResponse> allocate(@PathVariable Long txId,
+    // POST /api/v1/transactions/{transactionId}/allocations
+    @PostMapping(
+            value = "/{transactionId}/allocations",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<AllocationResponse> allocate(@PathVariable("transactionId") Long transactionId,
                                                        @Valid @RequestBody AllocationFromTransactionCreateRequest req) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(trackService.allocateFromTransaction(txId, req));
+        return ResponseEntity.status(HttpStatus.CREATED).body(trackService.allocateFromTransaction(transactionId, req));
     }
 
-    // PUT /api/v1/transactions/{txId}/allocations/{allocationId}
-    @PutMapping("/{txId}/allocations/{allocationId}")
-    public ResponseEntity<AllocationResponse> update(@PathVariable Long txId,
+    // PUT /api/v1/transactions/{transactionId}/allocations/{allocationId}
+    @PutMapping(
+            value = "/{transactionId}/allocations/{allocationId}",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<AllocationResponse> update(@PathVariable("transactionId") Long transactionId,
                                                      @PathVariable Long allocationId,
                                                      @Valid @RequestBody AllocationFromTransactionUpdateRequest req) {
-        return ResponseEntity.ok(trackService.updateFromTransaction(txId, allocationId, req));
+        return ResponseEntity.ok(trackService.updateFromTransaction(transactionId, allocationId, req));
     }
 
-    // GET /api/v1/transactions/{txId}/allocations
-    @GetMapping("/{txId}/allocations")
-    public ResponseEntity<List<AllocationResponse>> list(@PathVariable Long txId) {
-        return ResponseEntity.ok(trackService.listByTransaction(txId));
+    // GET /api/v1/transactions/{transactionId}/allocations
+    @GetMapping(
+            value = "/{transactionId}/allocations",
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<List<AllocationResponse>> list(@PathVariable("transactionId") Long transactionId) {
+        return ResponseEntity.ok(trackService.listByTransaction(transactionId));
     }
 
-    // DELETE /api/v1/transactions/{txId}/allocations/{allocationId}
-    @DeleteMapping("/{txId}/allocations/{allocationId}")
-    public ResponseEntity<Void> delete(@PathVariable Long txId, @PathVariable Long allocationId) {
-        trackService.deleteByTransaction(txId, allocationId);
+    // DELETE /api/v1/transactions/{transactionId}/allocations/{allocationId}
+    @DeleteMapping("/{transactionId}/allocations/{allocationId}")
+    public ResponseEntity<Void> delete(@PathVariable("transactionId") Long transactionId,
+                                       @PathVariable Long allocationId) {
+        trackService.deleteByTransaction(transactionId, allocationId);
         return ResponseEntity.noContent().build();
     }
 
-    // GET /api/v1/transactions/{txId}/allocation-candidates/debts?allocationId=123
-    @GetMapping("/{txId}/allocation-candidates/debts")
+    // GET /api/v1/transactions/{transactionId}/allocation-candidates/debts?allocationId=123
+    @GetMapping(
+            value = "/{transactionId}/allocation-candidates/debts",
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
     public ResponseEntity<List<DebtCandidateResponse>> debtCandidates(
-            @PathVariable Long txId,
+            @PathVariable("transactionId") Long transactionId,
             @RequestParam(required = false) Long allocationId
     ) {
-        return ResponseEntity.ok(trackService.debtCandidatesForTransaction(txId, allocationId));
+        return ResponseEntity.ok(trackService.debtCandidatesForTransaction(transactionId, allocationId));
     }
 }

@@ -1,43 +1,50 @@
 package com.app.controller;
 
-import com.app.security.JwtUtil;
-import com.app.model.AdminUser;
+import com.app.dto.common.ErrorResponse;
 import com.app.repository.AdminUserRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import com.app.security.JwtUtil;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.authentication.*;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
 public class AuthController {
 
-    @Autowired
-    private AuthenticationManager authManager;
+    private final JwtUtil jwtUtil;
+    private final PasswordEncoder passwordEncoder;
+    private final AdminUserRepository userRepo;
 
-    @Autowired
-    private JwtUtil jwtUtil;
+    public AuthController(JwtUtil jwtUtil, PasswordEncoder passwordEncoder, AdminUserRepository userRepo) {
+        this.jwtUtil = jwtUtil;
+        this.passwordEncoder = passwordEncoder;
+        this.userRepo = userRepo;
+    }
 
-    @Autowired
-    private PasswordEncoder passwordEncoder;
-
-    @Autowired
-    private AdminUserRepository userRepo;
-
-    @PostMapping("/login")
+    @PostMapping(
+            value = "/login",
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
     public ResponseEntity<?> login(@RequestParam String username, @RequestParam String password) {
+
         var userOpt = userRepo.findByUsername(username);
         if (userOpt.isEmpty()) {
-            return ResponseEntity.status(401).body("Invalid username");
+            return ResponseEntity.status(401)
+                    .body(ErrorResponse.of("AUTH_FAILED", "نام کاربری یا رمز عبور اشتباه است."));
         }
 
-        AdminUser user = userOpt.get();
+        var user = userOpt.get();
         if (!passwordEncoder.matches(password, user.getPassword())) {
-            return ResponseEntity.status(401).body("Invalid password");
+            return ResponseEntity.status(401)
+                    .body(ErrorResponse.of("AUTH_FAILED", "نام کاربری یا رمز عبور اشتباه است."));
         }
 
         String token = jwtUtil.generateToken(username);
-        return ResponseEntity.ok().body(token);
+
+        // JSON استاندارد برای فرانت
+        return ResponseEntity.ok(Map.of("token", token));
     }
 }

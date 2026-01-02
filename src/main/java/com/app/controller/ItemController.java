@@ -3,7 +3,8 @@ package com.app.controller;
 import com.app.dto.item.*;
 import com.app.service.ItemService;
 import jakarta.validation.Valid;
-import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -18,40 +19,43 @@ public class ItemController {
         this.service = service;
     }
 
-    @PostMapping
-    @ResponseStatus(HttpStatus.CREATED)
-    public ItemResponse create(@Valid @RequestBody ItemCreateRequest req) {
-        return service.create(req);
+    @PostMapping(
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<ItemResponse> create(@Valid @RequestBody ItemCreateRequest req) {
+        return ResponseEntity.status(201).body(service.create(req));
     }
 
-    @GetMapping
-    public List<ItemResponse> getAll() {
-        return service.getAll();
+    @GetMapping(produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<List<ItemResponse>> getAll() {
+        return ResponseEntity.ok(service.getAll());
     }
 
-    @GetMapping("/{id}")
-    public ItemResponse getById(@PathVariable Long id) {
-        return service.getById(id);
+    @GetMapping(value = "/{id}", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ItemResponse> getById(@PathVariable Long id) {
+        return ResponseEntity.ok(service.getById(id));
     }
 
-    @PutMapping("/{id}")
-    public ItemResponse update(@PathVariable Long id, @Valid @RequestBody ItemUpdateRequest req) {
-        return service.update(id, req);
+    @PutMapping(
+            value = "/{id}",
+            consumes = MediaType.APPLICATION_JSON_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE
+    )
+    public ResponseEntity<ItemResponse> update(@PathVariable Long id,
+                                               @Valid @RequestBody ItemUpdateRequest req) {
+        return ResponseEntity.ok(service.update(id, req));
     }
 
     @DeleteMapping("/{id}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable Long id) {
+    public ResponseEntity<Void> delete(@PathVariable Long id) {
         service.delete(id);
+        return ResponseEntity.noContent().build();
     }
 
-    /**
-     * Non-CRUD: search by (title/code) with optional category filter.
-     * Example: /api/v1/items/search?q=cement&categoryId=5
-     */
-    @GetMapping("/search")
-    public List<ItemResponse> search(@RequestParam(required = false) String q,
-                                    @RequestParam(required = false) Long categoryId) {
-        return service.search(q, categoryId);
+    @GetMapping(value = "/search", produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<List<ItemResponse>> search(@RequestParam(required = false) String q,
+                                                     @RequestParam(required = false) Long categoryId) {
+        return ResponseEntity.ok(service.search(q, categoryId));
     }
 }

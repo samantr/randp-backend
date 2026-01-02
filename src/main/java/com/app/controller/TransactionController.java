@@ -2,8 +2,8 @@ package com.app.controller;
 
 import com.app.dto.transaction.*;
 import com.app.service.TransactionService;
-import jakarta.validation.Valid;
-import org.springframework.http.*;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -19,10 +19,12 @@ public class TransactionController {
         this.transactionService = transactionService;
     }
 
-    // CRUD
+    // ---------------- CRUD ----------------
+
     @PostMapping
-    public ResponseEntity<TransactionResponse> create(@Valid @RequestBody TransactionCreateRequest req) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(transactionService.create(req));
+    public ResponseEntity<TransactionResponse> create(@RequestBody TransactionCreateRequest req) {
+        TransactionResponse created = transactionService.create(req);
+        return ResponseEntity.status(HttpStatus.CREATED).body(created);
     }
 
     @GetMapping("/{id}")
@@ -37,7 +39,7 @@ public class TransactionController {
 
     @PutMapping("/{id}")
     public ResponseEntity<TransactionResponse> update(@PathVariable Long id,
-                                                     @Valid @RequestBody TransactionUpdateRequest req) {
+                                                      @RequestBody TransactionUpdateRequest req) {
         return ResponseEntity.ok(transactionService.update(id, req));
     }
 
@@ -47,36 +49,46 @@ public class TransactionController {
         return ResponseEntity.noContent().build();
     }
 
-    // Extra: Ledger (statement)
-    // GET /api/v1/transactions/ledger?projectId=1&personId=10&from=2025-01-01&to=2025-12-31
+    // ---------------- Reports / Extras ----------------
+
+    /**
+     * دفتر حساب شخص در پروژه (ورودی/خروجی + مانده تجمعی)
+     * from/to اختیاری هستند (فیلتر بر اساس date_due)
+     *
+     * مثال:
+     * /api/v1/transactions/ledger?projectId=1&personId=10&from=2025-01-01&to=2025-12-31
+     */
     @GetMapping("/ledger")
-    public ResponseEntity<List<LedgerRowResponse>> ledger(
-            @RequestParam Long projectId,
-            @RequestParam Long personId,
-            @RequestParam(required = false) LocalDate from,
-            @RequestParam(required = false) LocalDate to
-    ) {
+    public ResponseEntity<List<LedgerRowResponse>> ledger(@RequestParam Long projectId,
+                                                          @RequestParam Long personId,
+                                                          @RequestParam(required = false) LocalDate from,
+                                                          @RequestParam(required = false) LocalDate to) {
         return ResponseEntity.ok(transactionService.ledger(projectId, personId, from, to));
     }
 
-    // Extra: Person balance
-    // GET /api/v1/transactions/balance/person?projectId=1&personId=10
-    @GetMapping("/balance/person")
-    public ResponseEntity<PersonBalanceResponse> personBalance(
-            @RequestParam Long projectId,
-            @RequestParam Long personId
-    ) {
+    /**
+     * جمع کل دریافتی/پرداختی شخص در یک پروژه + مانده
+     *
+     * مثال:
+     * /api/v1/transactions/person-balance?projectId=1&personId=10
+     */
+    @GetMapping("/person-balance")
+    public ResponseEntity<PersonBalanceResponse> personBalance(@RequestParam Long projectId,
+                                                               @RequestParam Long personId) {
         return ResponseEntity.ok(transactionService.personBalance(projectId, personId));
     }
 
-    // Extra: Pair balance (A vs B)
-    // GET /api/v1/transactions/balance/pair?projectId=1&fromPersonId=10&toPersonId=12
-    @GetMapping("/balance/pair")
-    public ResponseEntity<PairBalanceResponse> pairBalance(
-            @RequestParam Long projectId,
-            @RequestParam Long fromPersonId,
-            @RequestParam Long toPersonId
-    ) {
+    /**
+     * مانده خالص بین دو شخص در پروژه:
+     * (جمع پرداخت‌های from->to) - (جمع پرداخت‌های to->from)
+     *
+     * مثال:
+     * /api/v1/transactions/pair-balance?projectId=1&fromPersonId=5&toPersonId=10
+     */
+    @GetMapping("/pair-balance")
+    public ResponseEntity<PairBalanceResponse> pairBalance(@RequestParam Long projectId,
+                                                           @RequestParam Long fromPersonId,
+                                                           @RequestParam Long toPersonId) {
         return ResponseEntity.ok(transactionService.pairBalance(projectId, fromPersonId, toPersonId));
     }
 }
